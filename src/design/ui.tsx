@@ -24,7 +24,12 @@ export function Sheet({
     if (!open) return;
     const vv = window.visualViewport;
     if (!vv) return;
-    const update = () => setVvHeight(vv.height);
+    const update = () => {
+      // Чёрная служебная полоса некоторых клавиатур (Honor) рисуется НАД видимой
+      // областью: при открытой клавиатуре отступаем ещё 64px, кнопка видна целиком.
+      const keyboardOpen = vv.height < window.innerHeight - 120;
+      setVvHeight(vv.height - (keyboardOpen ? 64 : 0));
+    };
     update();
     vv.addEventListener('resize', update);
     vv.addEventListener('scroll', update);

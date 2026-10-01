@@ -348,6 +348,20 @@ export function AddShoppingSheet({
     [],
     undefined,
   );
+  // ЭТАП 4: ввод в один тап — недавние уникальные названия с их количеством/категорией.
+  const recent = useLiveQuery(
+    async () => {
+      const rows = await db.shopping.orderBy('updatedAt').reverse().limit(60).toArray();
+      const seen = new Map<string, ShoppingItem>();
+      for (const r of rows) {
+        if (r.deletedAt) continue;
+        if (!seen.has(r.canonicalKey)) seen.set(r.canonicalKey, r);
+      }
+      return [...seen.values()].slice(0, 8);
+    },
+    [],
+    undefined,
+  );
   const sameTitle = useLiveQuery(async () => {
     const key = canonicalKey(parseItem(text).title);
     if (!key) return undefined;
@@ -460,6 +474,31 @@ export function AddShoppingSheet({
             onFocus={revealOnFocus}
           />
         </Field>
+        {!editing && recent && recent.length > 0 && (
+          <div className="field">
+            <span className="field-label">Часто покупают — тап добавьте сразу</span>
+            <div className="chips" role="group" aria-label="Быстрое добавление из истории">
+              {recent.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  className="chip"
+                  onClick={() => {
+                    void shoppingRepo.add({
+                      title: r.title,
+                      qty: r.qty,
+                      unit: r.unit,
+                      category: r.category,
+                      horizon: r.horizon,
+                    });
+                  }}
+                >
+                  {r.title}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {(knownCategories?.length || sameTitle?.category) && (
           <div className="chips" role="group" aria-label="Быстрые категории">
             {sameTitle?.category && sameTitle.category !== category && (

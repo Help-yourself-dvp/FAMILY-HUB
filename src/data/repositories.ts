@@ -226,10 +226,20 @@ export async function appendActivity(
 ): Promise<void> {
   const s = session();
   const short = title.length > 40 ? `${title.slice(0, 40)}…` : title;
+  // Дедупликация (приёмка 0.1.9): циклы синхронизации могут приносить одно и то же
+  // событие повторно — лента не должна двоиться и вытеснять настоящие записи.
+  const actorId = actor?.id ?? s.deviceId;
+  const since = new Date(Date.now() - 5 * 60_000).toISOString();
+  const dup = await db.activity
+    .where('at')
+    .above(since)
+    .filter((a) => a.actorId === actorId && a.action === action && a.title === short)
+    .first();
+  if (dup) return;
   await db.activity.put({
     id: newId(),
     at: new Date().toISOString(),
-    actorId: actor?.id ?? s.deviceId,
+    actorId,
     actorName: actor?.name || s.name || 'Устройство',
     kind: 'shopping',
     action,

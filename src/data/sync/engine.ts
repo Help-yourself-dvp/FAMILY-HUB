@@ -151,6 +151,9 @@ export async function syncNow(_reason: string): Promise<void> {
           // Профили (members) — служебный вид: события «изменён профиль» в семейной
           // ленте не нужны (приёмка 0.1.8: лента забивалась строками с dev-id).
           if (o.kind === 'members') continue;
+          // «Изменено» без человекочитаемых правок (служебные rev/updatedBy) ленту
+          // не пополняет: иначе технические циклы затапливали её (приёмка 0.1.9).
+          if (ev.action === 'updated' && !ev.meaningful) continue;
           const member = await db.members.get(ev.actorId);
           void appendActivity(ev.action, ev.title, {
             id: ev.actorId,

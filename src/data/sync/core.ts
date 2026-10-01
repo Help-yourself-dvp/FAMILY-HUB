@@ -62,7 +62,11 @@ export interface RemoteChangeEvent {
   action: 'created' | 'updated' | 'completed' | 'deleted';
   title: string;
   actorId: string;
+  /** Менялось ли что-то человекочитаемое (название/количество/категория). */
+  meaningful: boolean;
 }
+
+type ShoppingLike = { title?: string; qty?: number | null; category?: string | null };
 
 /** Чистое правило вывода действия из «было/стало» (покрыто тестом). */
 export function remoteActionOf<T extends Syncable>(
@@ -155,11 +159,17 @@ async function attemptSync<T extends Syncable>(
     const next = outcome.merged[id];
     if (!next) continue;
     const titled = next as Syncable & { title?: string };
+    const prev = localMap[id] as (Syncable & ShoppingLike) | undefined;
     remoteEvents.push({
       id,
-      action: remoteActionOf(localMap[id], next),
+      action: remoteActionOf(prev, next),
       title: typeof titled.title === 'string' ? titled.title : id,
       actorId: next.updatedBy,
+      meaningful:
+        !prev ||
+        prev.title !== titled.title ||
+        prev.qty !== (next as ShoppingLike).qty ||
+        prev.category !== (next as ShoppingLike).category,
     });
   }
 

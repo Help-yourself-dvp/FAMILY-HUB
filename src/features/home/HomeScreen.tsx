@@ -14,7 +14,7 @@ import { PHASE_LABEL } from '../../data/sync/state';
 export default function HomeScreen({ ready }: { ready: boolean }) {
   const items = useLiveQuery(() => db.shopping.toArray(), [], undefined);
   const activity = useLiveQuery(
-    () => db.activity.orderBy('at').reverse().limit(8).toArray(),
+    () => db.activity.orderBy('at').reverse().limit(15).toArray(),
     [],
     undefined,
   );
