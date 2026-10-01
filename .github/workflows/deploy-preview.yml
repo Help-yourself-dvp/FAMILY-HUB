@@ -59,7 +59,7 @@ jobs:
           BASE_PATH=/FAMILY-HUB/ npx vite build 2>&1 | tee /tmp/vite-build.log
         continue-on-error: true
 
-      - name: "Что публикуем: свежая сборка или резервная копия"
+      - name: 'Что публикуем: свежая сборка или резервная копия'
         run: |
           echo "vite build outcome = ${{ steps.vitebuild.outcome }}"
           if [ -s dist/index.html ] && [ -s dist/sw.js ] && [ -s dist/app-shell.json ]; then
