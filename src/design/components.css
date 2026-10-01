@@ -234,6 +234,17 @@
   color: var(--accent);
 }
 
+/* ---------- Верхняя полоса статуса ---------- */
+/* Индикатор синхронизации живёт В ПОТОКЕ: ничто не перекрывает контент при прокрутке
+   (дефект 0.1.2: fixed-значок наезжал на строки и на кнопки в Настройках). */
+.topbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: calc(var(--sat) + 6px) calc(var(--sp-4) + var(--sar)) 0 calc(var(--sp-4) + var(--sal));
+}
+
 /* ---------- Переключатель ---------- */
 .switch {
   appearance: none;

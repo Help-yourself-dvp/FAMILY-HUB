@@ -36,7 +36,7 @@ function ShellInner({ ready }: { ready: boolean }) {
     <>
       <div className="app-shell">
         <UpdateBanner />
-        <SyncPill />
+        <TopBar />
         <Routes>
           <Route path="/" element={<HomeScreen ready={ready} />} />
           <Route path="/shopping" element={<ShoppingScreen ready={ready} />} />
@@ -130,38 +130,70 @@ function QuickAddFab() {
   );
 }
 
-/** Компактный индикатор состояния синхронизации (§6: пользователь должен видеть статус). */
-function SyncPill() {
+/**
+ * Индикатор синхронизации В ПОТОКЕ РАЗМЕТКИ (не fixed!).
+ *
+ * Раньше он висел `position: fixed` в правом верхнем углу и перекрывал строки
+ * интерфейса при прокрутке — владелец видел «наезжающий» значок и не мог прочитать
+ * кнопку под ним. Теперь это обычная верхняя полоса: ничего не перекрывает никогда.
+ *
+ * Число рядом с надписью показывается ТОЛЬКО когда синхронизация подключена и есть
+ * неотправленные изменения («Офлайн · 3 в очереди»). В локальном режиме числа нет:
+ * там оно бессмысленно и пугает (дефект «Локальный режим 10» из приёмки 0.1.2).
+ */
+function TopBar() {
+  return (
+    <div className="topbar">
+      <StatusPill />
+    </div>
+  );
+}
+
+function StatusPill() {
   const s = useSyncState();
+  const nav = useNavigate();
   const tone =
     s.phase === 'error' ? 'err' : s.phase === 'synced' ? 'ok' : s.phase === 'offline' ? 'warn' : 'muted';
   const icon: IconName = s.online ? (s.phase === 'error' ? 'alert' : 'cloud') : 'cloud-off';
 
+  const label =
+    s.phase === 'not-configured'
+      ? 'Локальный режим'
+      : s.phase === 'offline'
+        ? s.pendingCount > 0
+          ? `Офлайн · ${s.pendingCount} в очереди`
+          : 'Офлайн'
+        : PHASE_LABEL[s.phase];
+
+  const explanation =
+    s.phase === 'not-configured'
+      ? 'Данные хранятся только на этом устройстве. Нажмите, чтобы подключить семейное хранилище.'
+      : s.phase === 'offline'
+        ? s.pendingCount > 0
+          ? `Нет сети. Изменений ждут отправки: ${s.pendingCount}. Они уйдут сами, когда сеть появится.`
+          : 'Нет сети. Приложение работает офлайн.'
+        : s.phase === 'error'
+          ? 'Последняя синхронизация не удалась. Нажмите, чтобы открыть подробности.'
+          : 'Нажмите, чтобы синхронизировать сейчас.';
+
+  const onTap = () => {
+    if (s.phase === 'not-configured' || s.phase === 'error') void nav('/settings');
+    else void flushNow('manual');
+  };
+
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 'calc(var(--sat) + 8px)',
-        right: 'calc(var(--sp-3) + var(--sar))',
-        zIndex: 25,
-      }}
+    <button
+      type="button"
+      className={`badge badge--${tone === 'muted' ? 'accent' : tone}`}
+      style={{ opacity: s.phase === 'idle' && !s.configured ? 0 : 1, transition: 'opacity 200ms' }}
+      onClick={onTap}
+      aria-label={`Состояние синхронизации: ${label}. ${explanation}`}
+      title={explanation}
     >
-      <button
-        type="button"
-        className={`badge badge--${tone === 'muted' ? 'accent' : tone}`}
-        style={{ opacity: s.phase === 'idle' && !s.configured ? 0 : 1, transition: 'opacity 200ms' }}
-        onClick={() => flushNow('manual')}
-        aria-label={`Синхронизация: ${PHASE_LABEL[s.phase]}. Нажать, чтобы синхронизировать сейчас.`}
-        title={PHASE_LABEL[s.phase]}
-      >
-        <Icon name={icon} size={13} />
-        {s.phase === 'syncing' && <span className="dot dot--pulse" />}
-        <span>
-          {PHASE_LABEL[s.phase]}
-          {s.pendingCount > 0 ? ` · ${s.pendingCount}` : ''}
-        </span>
-      </button>
-    </div>
+      <Icon name={icon} size={13} />
+      {s.phase === 'syncing' && <span className="dot dot--pulse" />}
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -176,7 +208,7 @@ function UpdateBanner() {
 
   if (!available) return null;
   return (
-    <div style={{ position: 'fixed', top: 'calc(var(--sat) + 44px)', left: 0, right: 0, zIndex: 50, padding: '0 var(--sp-4)' }}>
+    <div style={{ padding: 'calc(var(--sat) + 8px) var(--sp-4) 0' }}>
       <div className="banner banner--ok">
         <Icon name="refresh" size={18} />
         <div className="grow">Доступна новая версия приложения</div>
