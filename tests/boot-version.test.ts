@@ -22,6 +22,15 @@ describe('updatedFrom', () => {
     expect(await kvGet<string>(KV_KEYS.lastSeenVersion)).toBe(__APP_VERSION__);
   });
 
+  it('обновление с версии, не записывавшей номер: плашка без прежней версии', async () => {
+    // Данные в базе уже есть (не первая установка), но kv последней версии пуст —
+    // так выглядит устройство, пришедшее с 0.1.3 и ниже.
+    await db.kv.delete(KV_KEYS.lastSeenVersion);
+    const res = await startApp();
+    expect(res.updatedFrom).toBe('unknown');
+    expect(await kvGet<string>(KV_KEYS.lastSeenVersion)).toBe(__APP_VERSION__);
+  });
+
   it('повторный запуск той же версии: плашки нет', async () => {
     const res = await startApp();
     expect(res.updatedFrom).toBeNull();

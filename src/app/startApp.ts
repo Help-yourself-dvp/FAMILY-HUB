@@ -69,8 +69,17 @@ export async function startApp(): Promise<StartResult> {
   await registerServiceWorker();
 
   // 5. Пометка «обновлено с версии X» — если прошлый запуск был другой версией.
+  //    'unknown' = локальные данные уже есть (значит, не первая установка), но номер
+  //    версии не записывался: так выглядит устройство, обновившееся с 0.1.3 и ниже,
+  //    которые kv ещё не вели. Плашку показать нужно, а прежнюю версию мы не знаем.
   const prevVersion = (await kvGet<string>(KV_KEYS.lastSeenVersion)) ?? null;
-  const updatedFrom = prevVersion && prevVersion !== __APP_VERSION__ ? prevVersion : null;
+  const updatedFrom = prevVersion
+    ? prevVersion !== __APP_VERSION__
+      ? prevVersion
+      : null
+    : seededDemo
+      ? null
+      : 'unknown';
   await kvSet(KV_KEYS.lastSeenVersion, __APP_VERSION__);
 
   return { config, theme, seededDemo, updatedFrom };
