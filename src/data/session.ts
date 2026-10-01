@@ -74,6 +74,12 @@ export async function updateProfile(patch: { name?: string; color?: string }): P
   const next: Session = { ...s, ...patch };
   if (patch.name !== undefined) await kvSet(KV_KEYS.profileName, patch.name);
   if (patch.color !== undefined) await kvSet(KV_KEYS.profileColor, patch.color);
+  // Приёмка 0.1.7: смена имени обновляет и прежние строки семейной ленты этого
+  // устройства («было и стало»), чтобы история не расходилась с профилем.
+  if (patch.name !== undefined) {
+    const newName = next.name.trim() || 'Без имени';
+    await db.activity.filter((a) => a.actorId === next.deviceId).modify({ actorName: newName });
+  }
   cached = next;
   await publishMember(next);
   return next;

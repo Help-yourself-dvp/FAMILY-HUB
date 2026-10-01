@@ -347,6 +347,13 @@ export function AddShoppingSheet({
 
   const preview = useMemo(() => (text.trim() ? parseItem(text) : null), [text]);
 
+  // Клавиатура на телефонах выше полей категории и кнопок: при фокусе поле
+  // подъезжает к центру видимой области (приёмка 0.1.7).
+  const revealOnFocus = (e: React.FocusEvent<HTMLElement>) => {
+    const el = e.currentTarget;
+    window.setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 250);
+  };
+
   const submit = async () => {
     const raw = text.trim();
     if (!raw) {
@@ -408,6 +415,7 @@ export function AddShoppingSheet({
             enterKeyHint="done"
             placeholder="Например: бананы 2 кг"
             onChange={(e) => setText(e.target.value)}
+            onFocus={revealOnFocus}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void submit();
             }}
@@ -440,6 +448,7 @@ export function AddShoppingSheet({
             value={category}
             placeholder="Например: Молочное"
             onChange={(e) => setCategory(e.target.value)}
+            onFocus={revealOnFocus}
           />
         </Field>
         {(knownCategories?.length || sameTitle?.category) && (

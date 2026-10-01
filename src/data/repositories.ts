@@ -195,14 +195,15 @@ export const memberRepo = {
 export async function appendActivity(
   action: 'created' | 'updated' | 'completed' | 'deleted',
   title: string,
+  actor?: { id: string; name: string },
 ): Promise<void> {
   const s = session();
   const short = title.length > 40 ? `${title.slice(0, 40)}…` : title;
   await db.activity.put({
     id: newId(),
     at: new Date().toISOString(),
-    actorId: s.deviceId,
-    actorName: s.name || 'Устройство',
+    actorId: actor?.id ?? s.deviceId,
+    actorName: actor?.name || s.name || 'Устройство',
     kind: 'shopping',
     action,
     title: short,

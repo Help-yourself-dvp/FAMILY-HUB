@@ -117,7 +117,8 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
                       style={{ color: memberColor(members, a.actorId), flex: '0 0 auto' }}
                     />
                     <span className="truncate">
-                      {a.actorName} · {formatTime(a.at)}
+                      {members?.find((m) => m.id === a.actorId)?.name ?? a.actorName} ·{' '}
+                      {formatTime(a.at)}
                     </span>
                   </div>
                 </div>

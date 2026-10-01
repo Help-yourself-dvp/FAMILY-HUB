@@ -50,6 +50,31 @@ export interface SyncKindsResult {
   conflicts: number;
   attempts: number;
   remoteChanged: boolean;
+  /**
+   * Применение чужих изменений (приёмка 0.1.7): семейная лента на принимающем
+   * устройстве должна показать, КТО и ЧТО сделал, а не молча применить.
+   */
+  remoteEvents: RemoteChangeEvent[];
+}
+
+export interface RemoteChangeEvent {
+  id: string;
+  action: 'created' | 'updated' | 'completed' | 'deleted';
+  title: string;
+  actorId: string;
+}
+
+/** Чистое правило вывода действия из «было/стало» (покрыто тестом). */
+export function remoteActionOf<T extends Syncable>(
+  prev: T | undefined,
+  next: T,
+): RemoteChangeEvent['action'] {
+  const nextAny = next as Syncable & { done?: boolean; deletedAt?: string | null };
+  const prevAny = prev as (Syncable & { done?: boolean; deletedAt?: string | null }) | undefined;
+  if (!prev) return 'created';
+  if (nextAny.deletedAt && !prevAny?.deletedAt) return 'deleted';
+  if (nextAny.done && !prevAny?.done) return 'completed';
+  return 'updated';
 }
 
 export interface SyncCoreDeps {
@@ -125,6 +150,19 @@ async function attemptSync<T extends Syncable>(
   await local.write<T>(kind, outcome.merged, now, localMap);
   void nextBaseSnapshot; // base-снимок сохраняется внутри local.write
 
+  const remoteEvents: RemoteChangeEvent[] = [];
+  for (const id of outcome.remoteWins) {
+    const next = outcome.merged[id];
+    if (!next) continue;
+    const titled = next as Syncable & { title?: string };
+    remoteEvents.push({
+      id,
+      action: remoteActionOf(localMap[id], next),
+      title: typeof titled.title === 'string' ? titled.title : id,
+      actorId: next.updatedBy,
+    });
+  }
+
   return {
     kind,
     pushed: outcome.localWins.length,
@@ -132,6 +170,7 @@ async function attemptSync<T extends Syncable>(
     conflicts: outcome.conflicts.length,
     attempts: attempt,
     remoteChanged: remoteNeedsUpdate,
+    remoteEvents,
   };
 }
 

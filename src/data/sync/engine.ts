@@ -24,6 +24,7 @@ import {
 export type { LocalStorePort, RemoteStorePort } from './core';
 import { setSyncState } from './state';
 import { log } from '../../shared/log';
+import { appendActivity } from '../repositories';
 import type { EntityKind, Syncable } from '../../domain/types';
 import { ENTITY_KINDS } from '../../domain/types';
 
@@ -144,6 +145,15 @@ export async function syncNow(_reason: string): Promise<void> {
         pushed += o.ok.pushed;
         pulled += o.ok.pulled;
         conflicts += o.ok.conflicts;
+        // Семейная лента на принимающем устройстве (приёмка 0.1.7): чужие изменения
+        // видны как события с именем автора, а не применяются молча.
+        for (const ev of o.ok.remoteEvents) {
+          const member = await db.members.get(ev.actorId);
+          void appendActivity(ev.action, ev.title, {
+            id: ev.actorId,
+            name: member?.name || 'Семья',
+          });
+        }
       } else if (!failure) {
         const e = o.err;
         const code = e instanceof ConflictError ? 'conflict' : errorCode(e);

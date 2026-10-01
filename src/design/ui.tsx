@@ -3,7 +3,7 @@
  * нам нужны точный контроль safe-area, touch targets ≥44px и graceful
  * degradation без backdrop-filter — готовые наборы этого не гарантируют.
  */
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 export function Sheet({
   open,
@@ -16,6 +16,23 @@ export function Sheet({
   onClose: () => void;
   children: ReactNode;
 }) {
+  // Приёмка 0.1.7: клавиатура не должна прятать низ формы. Уменьшение
+  // visualViewport при её открытии — единственный надёжный сигнал на Android/iOS:
+  // ограничиваем высоту sheet высотой видимой области, остальное уходит в прокрутку.
+  const [vvHeight, setVvHeight] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setVvHeight(vv.height);
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -35,7 +52,13 @@ export function Sheet({
   return (
     <>
       <div className="sheet-scrim" onClick={onClose} aria-hidden="true" />
-      <div className="sheet" role="dialog" aria-modal="true" aria-label={title}>
+      <div
+        className="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        style={vvHeight ? { maxHeight: `calc(${Math.round(vvHeight)}px - 4px)` } : undefined}
+      >
         <div className="sheet-handle" aria-hidden="true" />
         <div className="row row--between" style={{ marginBottom: 'var(--sp-4)' }}>
           <h2 style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, letterSpacing: '-0.02em' }}>
