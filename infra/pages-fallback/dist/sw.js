@@ -68,6 +68,12 @@ self.addEventListener('activate', (event) => {
           .filter((k) => k.startsWith(SHELL_CACHE_PREFIX) && k !== current)
           .map((k) => caches.delete(k)),
       );
+      // Runtime-кэш накапливал ассеты ВСЕХ прежних версий (хэшированные js/css,
+      // иконки со старыми ?v=): «память сайтов» росла с каждым обновлением
+      // (приёмка 0.1.8: 11 МБ). Ядро приложения лежит в shell-кэше текущей версии,
+      // поэтому runtime безопасно пересоздать: недостающее докатится само.
+      await caches.delete(RUNTIME_CACHE);
+      await caches.open(RUNTIME_CACHE);
       await self.clients.claim();
     })(),
   );

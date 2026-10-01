@@ -65,6 +65,16 @@ export async function startApp(): Promise<StartResult> {
   // 3. Основное состояние: хранилище, порты синхронизации, удалённый репозиторий.
   const config = await bootstrap();
 
+  // 3.5. Разовая чистка ленты от служебных строк 0.1.8 (заголовки dev-…):
+  //      события профилей случайно писались в ленту с id вместо названия.
+  if (!(await kvGet<boolean>('cleanup.devTitles.done'))) {
+    await db.activity
+      .filter((a) => /^dev-[0-9a-f]{6,}$/u.test(a.title))
+      .delete()
+      .catch(() => 0);
+    await kvSet('cleanup.devTitles.done', true);
+  }
+
   // 4. Service Worker — улучшение, а не условие запуска.
   await registerServiceWorker();
 

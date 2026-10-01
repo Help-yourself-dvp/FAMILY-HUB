@@ -205,13 +205,22 @@ export default function ShoppingScreen({
                 }}
               />
               {showDone && (
-                <button
-                  type="button"
-                  className="btn btn--sm btn--ghost"
-                  onClick={() => void shoppingRepo.clearDone()}
-                >
-                  Очистить
-                </button>
+                <div className="row" style={{ gap: 6 }}>
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--ghost"
+                    onClick={() => void shoppingRepo.repeatBasket()}
+                  >
+                    Повторить корзину
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--ghost"
+                    onClick={() => void shoppingRepo.clearDone()}
+                  >
+                    Очистить
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -479,14 +488,17 @@ export function AddShoppingSheet({
           </div>
         )}
 
-        <button
-          type="button"
-          className="btn btn--primary btn--block"
-          disabled={busy}
-          onClick={() => void submit()}
-        >
-          {busy ? 'Сохраняем…' : editing ? 'Сохранить' : 'Добавить'}
-        </button>
+        {/* Липкий низ: финальная кнопка видна всегда, даже поверх клавиатуры (приёмка 0.1.8) */}
+        <div className="sheet-footer">
+          <button
+            type="button"
+            className="btn btn--primary btn--block"
+            disabled={busy}
+            onClick={() => void submit()}
+          >
+            {busy ? 'Сохраняем…' : editing ? 'Сохранить' : 'Добавить'}
+          </button>
+        </div>
       </div>
     </Sheet>
   );

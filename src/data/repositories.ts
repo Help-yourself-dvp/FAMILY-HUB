@@ -129,6 +129,33 @@ export const shoppingRepo = {
     notifyLocalChange();
   },
 
+  /**
+   * «Повторить корзину» (ЭТАП 4): завершённые позиции возвращаются в список активными.
+   * Типичный сценарий семьи: недельная корзина повторяется с небольшими правками.
+   */
+  async repeatBasket(): Promise<number> {
+    const done = await this.listDone();
+    let n = 0;
+    for (const d of done) {
+      const s = stamp();
+      await db.shopping.put({
+        ...d,
+        done: false,
+        doneAt: null,
+        doneBy: null,
+        rev: d.rev + 1,
+        updatedAt: s.updatedAt,
+        updatedBy: s.updatedBy,
+      });
+      n += 1;
+    }
+    if (n > 0) {
+      await appendActivity('created', `Корзина повторена: ${n} поз.`);
+      notifyLocalChange();
+    }
+    return n;
+  },
+
   /** Очистка завершённых (локально + tombstone, чтобы не вернулись с другого телефона). */
   async clearDone(): Promise<number> {
     const done = await this.listDone();

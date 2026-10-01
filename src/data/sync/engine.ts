@@ -148,6 +148,9 @@ export async function syncNow(_reason: string): Promise<void> {
         // Семейная лента на принимающем устройстве (приёмка 0.1.7): чужие изменения
         // видны как события с именем автора, а не применяются молча.
         for (const ev of o.ok.remoteEvents) {
+          // Профили (members) — служебный вид: события «изменён профиль» в семейной
+          // ленте не нужны (приёмка 0.1.8: лента забивалась строками с dev-id).
+          if (o.kind === 'members') continue;
           const member = await db.members.get(ev.actorId);
           void appendActivity(ev.action, ev.title, {
             id: ev.actorId,

@@ -50,10 +50,14 @@ export async function loadSession(): Promise<Session> {
 async function publishMember(s: Session): Promise<void> {
   const now = new Date().toISOString();
   const cur = await db.members.get(s.deviceId);
+  // Без этой проверки каждый запуск задирал rev профиля: устройства устраивали
+  // ping-понг «обновлений» профиля, а лента забивалась строками «изменено» (приёмка 0.1.8).
+  const name = s.name.trim() || 'Без имени';
+  if (cur && cur.name === name && cur.color === s.color && !cur.deletedAt) return;
   await db.members.put({
     id: s.deviceId,
     kind: 'members',
-    name: s.name.trim() || 'Без имени',
+    name,
     color: s.color,
     emoji: null,
     rev: (cur?.rev ?? 0) + 1,

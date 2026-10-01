@@ -244,6 +244,15 @@
   animation: sheet-in var(--dur) var(--ease) forwards;
   overscroll-behavior: contain;
 }
+.sheet-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--bg-elev);
+  padding: var(--sp-3) 0 calc(var(--sp-3) + var(--sab));
+  margin-top: var(--sp-2);
+  box-shadow: 0 -8px 16px -12px var(--scrim);
+}
 .sheet-handle {
   width: 38px;
   height: 4px;
