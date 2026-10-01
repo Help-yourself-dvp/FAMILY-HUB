@@ -29,7 +29,7 @@ import type { EntityKind, Syncable } from '../../domain/types';
 import { ENTITY_KINDS } from '../../domain/types';
 
 /** Какие виды сущностей синхронизируются на ЭТАПЕ 1 (сквозной скелет). */
-export const ACTIVE_SYNC_KINDS: EntityKind[] = ['shopping', 'members'];
+export const ACTIVE_SYNC_KINDS: EntityKind[] = ['shopping', 'members', 'deadlines'];
 
 /** Задержка перед коммитом после локального изменения. */
 export const DEBOUNCE_MS = 2000;

@@ -13,7 +13,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import HomeScreen from '../features/home/HomeScreen';
 import ShoppingScreen from '../features/shopping/ShoppingScreen';
 import TasksScreen from '../features/tasks/PlaceholderScreen';
-import DeadlinesScreen from '../features/deadlines/PlaceholderScreen';
+import DeadlinesScreen from '../features/deadlines/DeadlinesScreen';
 import SettingsScreen from '../features/settings/SettingsScreen';
 
 const TABS: Array<{ to: string; label: string; icon: IconName }> = [
@@ -63,7 +63,7 @@ function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: strin
               }
             />
             <Route path="/tasks" element={<TasksScreen />} />
-            <Route path="/deadlines" element={<DeadlinesScreen />} />
+            <Route path="/deadlines" element={<DeadlinesScreen ready={ready} />} />
             <Route path="/settings" element={<SettingsScreen ready={ready} />} />
             <Route path="*" element={<HomeScreen ready={ready} />} />
           </Routes>

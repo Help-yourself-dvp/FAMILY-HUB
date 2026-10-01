@@ -10,7 +10,8 @@ import { db, kvSet } from './db';
 import { session } from './session';
 import { notifyLocalChange } from './sync/engine';
 import { canonicalKey } from '../domain/normalize';
-import type { Horizon, Member, ShoppingItem } from '../domain/types';
+import type { Deadline, Horizon, Member, ShoppingItem } from '../domain/types';
+import type { DateOnly } from '../domain/dateOnly';
 import { newId } from '../shared/id';
 
 export interface NewShoppingInput {
@@ -255,3 +256,73 @@ export async function appendActivity(
     await db.activity.bulkDelete(old);
   }
 }
+
+/* ------------------------------- Сроки (ЭТАП 6) ------------------------------- */
+
+export interface NewDeadlineInput {
+  title: string;
+  deadlineKind: Deadline['deadlineKind'];
+  dueDate: DateOnly;
+  remindersDays: number[];
+}
+
+export const deadlinesRepo = {
+  async add(input: NewDeadlineInput): Promise<Deadline> {
+    const s = stamp();
+    const item: Deadline = {
+      id: newId(),
+      rev: 1,
+      kind: 'deadlines',
+      createdAt: s.updatedAt,
+      updatedAt: s.updatedAt,
+      updatedBy: s.updatedBy,
+      deletedAt: null,
+      title: input.title.trim(),
+      deadlineKind: input.deadlineKind,
+      dueDate: input.dueDate,
+      remindersDays: input.remindersDays,
+      recurrence: { type: 'none' },
+      lastCompletedAt: null,
+      history: [],
+      visibility: 'family',
+      note: null,
+    };
+    await db.deadlines.put(item);
+    await appendActivity('created', item.title);
+    notifyLocalChange();
+    return item;
+  },
+
+  async update(id: string, patch: Partial<NewDeadlineInput>): Promise<void> {
+    const cur = await db.deadlines.get(id);
+    if (!cur || cur.deletedAt) return;
+    const s = stamp();
+    const next: Deadline = {
+      ...cur,
+      ...patch,
+      title: patch.title !== undefined ? patch.title.trim() : cur.title,
+      rev: cur.rev + 1,
+      updatedAt: s.updatedAt,
+      updatedBy: s.updatedBy,
+    };
+    await db.deadlines.put(next);
+    await appendActivity('updated', next.title);
+    notifyLocalChange();
+  },
+
+  /** Tombstone: иначе срок воскреснет при слиянии (§2.2, п.5). */
+  async remove(id: string): Promise<void> {
+    const cur = await db.deadlines.get(id);
+    if (!cur) return;
+    const s = stamp();
+    await db.deadlines.put({
+      ...cur,
+      deletedAt: s.updatedAt,
+      rev: cur.rev + 1,
+      updatedAt: s.updatedAt,
+      updatedBy: s.updatedBy,
+    });
+    await appendActivity('deleted', cur.title);
+    notifyLocalChange();
+  },
+};

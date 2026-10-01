@@ -3,9 +3,10 @@
  * На ЭТАПЕ 1 показывает реальные счётчики из локальной БД + «Семейную ленту».
  */
 import { useMemo } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { Link } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
+import { daysUntil, formatRu, humanizeDelta } from '../../domain/dateOnly';
 import { HORIZON_LABEL, type Horizon } from '../../domain/types';
 import { Banner, Icon, Skeleton, Stat } from '../../design/ui';
 import { useSyncState } from '../../app/hooks';
@@ -19,6 +20,11 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
     undefined,
   );
   const members = useLiveQuery(() => db.members.toArray(), [], undefined);
+  const deadlines = useLiveQuery(
+    () => db.deadlines.filter((d) => !d.deletedAt && d.visibility === 'family').toArray(),
+    [],
+    undefined,
+  );
   const sync = useSyncState();
 
   const stats = useMemo(() => {
@@ -99,6 +105,40 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
           </div>
         )}
       </div>
+
+      <section className="stack">
+        <div className="row row--between">
+          <h2 className="section-title">Ближайшие сроки</h2>
+          <Link to="/deadlines" className="btn btn--sm btn--ghost">
+            Все сроки
+          </Link>
+        </div>
+        {deadlines && deadlines.length > 0 ? (
+          <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
+            {deadlines.slice(0, 3).map((d) => {
+              const left = daysUntil(d.dueDate);
+              const tone = left < 0 ? 'var(--err)' : left <= 30 ? 'var(--warn)' : 'var(--text-2)';
+              return (
+                <div key={d.id} className="row" style={{ gap: 'var(--sp-3)' }}>
+                  <div className="grow">
+                    <div className="small" style={{ overflowWrap: 'anywhere' }}>
+                      {d.title}
+                    </div>
+                    <div className="tiny muted">{formatRu(d.dueDate)}</div>
+                  </div>
+                  <span className="badge" style={{ color: tone, borderColor: tone }}>
+                    {left < 0 ? `просрочено ${-left} дн.` : humanizeDelta(left)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="small muted">
+            Сроќв пока нет. Добавьте первый в разделе «Сроки» — напоминания придут сами.
+          </div>
+        )}
+      </section>
 
       <section className="stack">
         <h2 className="section-title">Семейная лента</h2>
