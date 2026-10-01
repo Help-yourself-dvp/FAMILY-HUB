@@ -66,6 +66,7 @@ export default function NotificationsSection() {
       <details className="acc">
         <summary className="acc-summary">
           <span className="grow">Уведомления</span>
+          <span className="acc-hint">Каналы: в приложении, календарь, push при закрытом</span>
           <Icon name="chevron" size={18} className="chev" />
         </summary>
         <div className="acc-body stack">

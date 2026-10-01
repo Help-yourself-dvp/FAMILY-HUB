@@ -656,6 +656,16 @@ code,
 .acc[open] .chev {
   transform: rotate(90deg);
 }
+.acc-summary {
+  flex-wrap: wrap;
+}
+.acc-hint {
+  flex-basis: 100%;
+  order: 3;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  margin-top: 2px;
+}
 .acc-body {
   padding-bottom: var(--sp-4);
 }

@@ -14,6 +14,7 @@ export default function ThemeSection() {
       <details className="acc">
         <summary className="acc-summary">
           <span className="grow">Оформление</span>
+          <span className="acc-hint">Светлая или тёмная тема</span>
           <Icon name="chevron" size={18} className="chev" />
         </summary>
         <div className="acc-body stack">

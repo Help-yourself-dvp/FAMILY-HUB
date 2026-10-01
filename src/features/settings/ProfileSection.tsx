@@ -27,6 +27,7 @@ export default function ProfileSection() {
       <details className="acc">
         <summary className="acc-summary">
           <span className="grow">Кто вы</span>
+          <span className="acc-hint">Имя и цвет — так семья видит ваши действия</span>
           <Icon name="chevron" size={18} className="chev" />
         </summary>
         <div className="acc-body stack">

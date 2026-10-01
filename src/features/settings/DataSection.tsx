@@ -74,6 +74,7 @@ export default function DataSection() {
       <details className="acc">
         <summary className="acc-summary">
           <span className="grow">Данные</span>
+          <span className="acc-hint">Демо-записи, локальная база, очистка</span>
           <Icon name="chevron" size={18} className="chev" />
         </summary>
         <div className="acc-body stack">

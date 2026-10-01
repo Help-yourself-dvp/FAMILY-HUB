@@ -137,6 +137,7 @@ export default function DiagnosticsSection() {
       <details className="acc">
         <summary className="acc-summary">
           <span className="grow">Диагностика</span>
+          <span className="acc-hint">Отчёт разработчику без семейных данных</span>
           <Icon name="chevron" size={18} className="chev" />
         </summary>
         <div className="acc-body stack">

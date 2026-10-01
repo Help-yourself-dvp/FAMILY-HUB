@@ -41,6 +41,7 @@ export default function SettingsScreen({ ready }: { ready: boolean }) {
         <details className="acc">
           <summary className="acc-summary">
             <span className="grow">Журнал синхронизации</span>
+            <span className="acc-hint">События и времена запросов — для отчёта</span>
             <Icon name="chevron" size={18} className="chev" />
           </summary>
           <div className="acc-body stack">
@@ -87,7 +88,7 @@ export default function SettingsScreen({ ready }: { ready: boolean }) {
       <div style={{ height: 24 }} aria-hidden="true" />
       <div className="tiny muted" style={{ textAlign: 'center' }}>
         {sync.rateRemaining !== null
-          ? `Осталось запросов к GitHub в час: ${sync.rateRemaining}`
+          ? `Связь с хранилищем: запас ${sync.rateRemaining} из 5000 запросов в час (GitHub ограничивает всех; нам хватает с огромным запасом)`
           : ''}
       </div>
     </div>

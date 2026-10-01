@@ -192,9 +192,10 @@ export default function ConnectionSection() {
 
   return (
     <section className="stack">
-      <details className="acc" open>
+      <details className="acc">
         <summary className="acc-summary">
           <span className="grow">Семейный репозиторий</span>
+          <span className="acc-hint">Хранилище семьи, код подключения, срок ключа</span>
           <Icon name="chevron" size={18} className="chev" />
         </summary>
         <div className="acc-body stack">

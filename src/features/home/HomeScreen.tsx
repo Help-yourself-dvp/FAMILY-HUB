@@ -141,33 +141,43 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
       </section>
 
       <section className="stack">
-        <h2 className="section-title">Семейная лента</h2>
-        {activity && activity.length > 0 ? (
-          <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
-            {activity.map((a) => (
-              <div key={a.id} className="row" style={{ gap: 'var(--sp-3)' }}>
-                <span className="badge badge--accent">{actionLabel(a.action)}</span>
-                <div className="grow">
-                  <div className="small" style={{ overflowWrap: 'anywhere' }}>
-                    {a.title}
+        <details className="acc">
+          <summary className="acc-summary">
+            <span className="grow">
+              Семейная лента{activity && activity.length > 0 ? ` · ${activity.length}` : ''}
+            </span>
+            <span className="acc-hint">Кто что добавил, купил или изменил</span>
+            <Icon name="chevron" size={18} className="chev" />
+          </summary>
+          <div className="acc-body stack">
+            {activity && activity.length > 0 ? (
+              <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
+                {activity.map((a) => (
+                  <div key={a.id} className="row" style={{ gap: 'var(--sp-3)' }}>
+                    <span className="badge badge--accent">{actionLabel(a.action)}</span>
+                    <div className="grow">
+                      <div className="small" style={{ overflowWrap: 'anywhere' }}>
+                        {a.title}
+                      </div>
+                      <div className="row tiny muted" style={{ gap: 6 }}>
+                        <span
+                          className="dot"
+                          style={{ color: memberColor(members, a.actorId), flex: '0 0 auto' }}
+                        />
+                        <span className="truncate">
+                          {members?.find((m) => m.id === a.actorId)?.name ?? a.actorName} ·{' '}
+                          {formatTime(a.at)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="row tiny muted" style={{ gap: 6 }}>
-                    <span
-                      className="dot"
-                      style={{ color: memberColor(members, a.actorId), flex: '0 0 auto' }}
-                    />
-                    <span className="truncate">
-                      {members?.find((m) => m.id === a.actorId)?.name ?? a.actorName} ·{' '}
-                      {formatTime(a.at)}
-                    </span>
-                  </div>
-                </div>
+                ))}
               </div>
-            ))}
+            ) : (
+              <div className="small muted">Пока пусто. Действия семьи появятся здесь.</div>
+            )}
           </div>
-        ) : (
-          <div className="small muted">Пока пусто. Действия семьи появятся здесь.</div>
-        )}
+        </details>
       </section>
 
       <div className="card">

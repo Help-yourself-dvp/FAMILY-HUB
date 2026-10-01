@@ -21,9 +21,10 @@ export default function SyncSection() {
 
   return (
     <section className="stack">
-      <details className="acc" open>
+      <details className="acc">
         <summary className="acc-summary">
           <span className="grow">Синхронизация</span>
+          <span className="acc-hint">Статус, очередь отправки, когда была последняя</span>
           <Icon name="chevron" size={18} className="chev" />
         </summary>
         <div className="acc-body stack">

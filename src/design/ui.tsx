@@ -19,23 +19,27 @@ export function Sheet({
   // Приёмка 0.1.7: клавиатура не должна прятать низ формы. Уменьшение
   // visualViewport при её открытии — единственный надёжный сигнал на Android/iOS:
   // ограничиваем высоту sheet высотой видимой области, остальное уходит в прокрутку.
-  const [vvHeight, setVvHeight] = useState<number | null>(null);
+  // Привязка к ВЕРХНЕЙ ГРАНИЦЕ клавиатуры (просьба владельца 2026-10-01):
+  // covered = сколько пикселей экрана закрыто клавиатурой и её служебной полосой;
+  // sheet поднимается ровно на эту высоту, кнопка видна всегда одинаково.
+  const [vv, setVv] = useState<{ height: number; covered: number } | null>(null);
   useEffect(() => {
     if (!open) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => {
-      // Чёрная служебная полоса некоторых клавиатур (Honor) рисуется НАД видимой
-      // областью: при открытой клавиатуре отступаем ещё 64px, кнопка видна целиком.
-      const keyboardOpen = vv.height < window.innerHeight - 120;
-      setVvHeight(vv.height - (keyboardOpen ? 64 : 0));
-    };
+    const v = window.visualViewport;
+    if (!v) return;
+    const update = () =>
+      setVv({
+        height: v.height,
+        covered: Math.max(0, window.innerHeight - v.height - v.offsetTop),
+      });
     update();
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
+    v.addEventListener('resize', update);
+    v.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
     return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
+      v.removeEventListener('resize', update);
+      v.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
     };
   }, [open]);
   useEffect(() => {
@@ -62,7 +66,14 @@ export function Sheet({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        style={vvHeight ? { maxHeight: `calc(${Math.round(vvHeight)}px - 4px)` } : undefined}
+        style={
+          vv
+            ? {
+                bottom: vv.covered > 4 ? Math.round(vv.covered) : undefined,
+                maxHeight: Math.round(vv.height - 12),
+              }
+            : undefined
+        }
       >
         <div className="sheet-handle" aria-hidden="true" />
         <div className="row row--between" style={{ marginBottom: 'var(--sp-4)' }}>
