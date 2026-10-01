@@ -6,7 +6,6 @@ export default function DeadlinesScreen() {
     <div className="screen">
       <header className="screen-header">
         <div>
-          <h1 className="screen-title">Сроки</h1>
           <div className="screen-subtitle">модуль ещё не реализован</div>
         </div>
       </header>

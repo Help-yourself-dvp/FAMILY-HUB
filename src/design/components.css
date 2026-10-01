@@ -340,7 +340,7 @@
    (дефект 0.1.2: fixed-значок наезжал на строки и на кнопки в Настройках). */
 .topbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
   gap: var(--sp-2);
   padding: calc(var(--sat) + 6px) calc(var(--sp-4) + var(--sar)) 0 calc(var(--sp-4) + var(--sal));
@@ -430,6 +430,34 @@
 .item-title {
   font-size: var(--fs-lg);
   font-weight: var(--fw-med);
+  /* Длинные названия переносятся, а не обрезаются (приёмка 0.1.5). */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.item-meta {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+/* Строка позиции как кнопка правки: без визуального шума, вся область нажимается. */
+.item-hit {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  display: block;
+  width: 100%;
+  cursor: pointer;
+}
+
+.topbar-title {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semi);
+  color: var(--text);
 }
 .item-meta {
   font-size: var(--fs-xs);
@@ -621,4 +649,9 @@ code,
 }
 .acc-body {
   padding-bottom: var(--sp-4);
+}
+
+.chip--accent {
+  border-color: var(--accent);
+  color: var(--accent);
 }

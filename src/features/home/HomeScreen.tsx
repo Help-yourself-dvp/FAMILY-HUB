@@ -18,6 +18,7 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
     [],
     undefined,
   );
+  const members = useLiveQuery(() => db.members.toArray(), [], undefined);
   const sync = useSyncState();
 
   const stats = useMemo(() => {
@@ -38,7 +39,6 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
   if (!ready || !stats) {
     return (
       <div className="screen">
-        <Header />
         <Skeleton h={92} count={2} />
       </div>
     );
@@ -46,8 +46,6 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
 
   return (
     <div className="screen">
-      <Header />
-
       {stats.demo && (
         <Banner tone="warn">
           <div className="grow">
@@ -110,9 +108,17 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
               <div key={a.id} className="row" style={{ gap: 'var(--sp-3)' }}>
                 <span className="badge badge--accent">{actionLabel(a.action)}</span>
                 <div className="grow">
-                  <div className="small truncate">{a.title}</div>
-                  <div className="tiny muted truncate">
-                    {a.actorName} · {formatTime(a.at)}
+                  <div className="small" style={{ overflowWrap: 'anywhere' }}>
+                    {a.title}
+                  </div>
+                  <div className="row tiny muted" style={{ gap: 6 }}>
+                    <span
+                      className="dot"
+                      style={{ color: memberColor(members, a.actorId), flex: '0 0 auto' }}
+                    />
+                    <span className="truncate">
+                      {a.actorName} · {formatTime(a.at)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -135,19 +141,8 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
   );
 }
 
-function Header() {
-  return (
-    <header className="screen-header">
-      <div>
-        <h1 className="screen-title">Family Hub</h1>
-        <div className="screen-subtitle">версия {__APP_VERSION__} · ЭТАП 1</div>
-      </div>
-      <Link to="/settings" className="icon-btn" aria-label="Настройки">
-        <Icon name="gear" />
-      </Link>
-    </header>
-  );
-}
+/* Заголовок и вход в настройки вынесены в верхнюю панель и нижнюю навигацию
+   (приёмка 0.1.5: два входа в настройки и съедаемая строка заголовка). */
 
 function actionLabel(a: string): string {
   switch (a) {
@@ -173,4 +168,11 @@ function formatTime(iso: string): string {
   return sameDay
     ? time
     : d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' }) + ', ' + time;
+}
+
+function memberColor(
+  members: Array<{ id: string; color: string }> | undefined,
+  actorId: string,
+): string {
+  return members?.find((m) => m.id === actorId)?.color ?? 'var(--text-3)';
 }

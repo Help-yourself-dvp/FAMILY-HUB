@@ -5,20 +5,39 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useLocation } from 'react-router-dom';
 import { db, kvGet, kvSet } from '../../data/db';
 import { shoppingRepo, type NewShoppingInput } from '../../data/repositories';
-import { parseItem } from '../../domain/normalize';
+import { canonicalKey, parseItem } from '../../domain/normalize';
 import { formatQty } from '../../domain/quantity';
 import { HORIZONS, HORIZON_LABEL, type Horizon, type ShoppingItem } from '../../domain/types';
 import { Banner, EmptyState, Field, Icon, Sheet, Skeleton, Switch } from '../../design/ui';
 import { useSyncState } from '../../app/hooks';
 
-export default function ShoppingScreen({ ready }: { ready: boolean }) {
-  const location = useLocation() as { state?: { compose?: boolean } };
-  // Инициализатор, а не эффект: состояние ставится один раз при монтировании маршрута
-  const [composeOpen, setComposeOpen] = useState(() => location.state?.compose === true);
+export default function ShoppingScreen({
+  ready,
+  composeKey,
+}: {
+  ready: boolean;
+  /** Ключ навигации с запросом «открыть форму добавления» (FAB «+»). */
+  composeKey: string | null;
+}) {
+  const [composeOpen, setComposeOpen] = useState(false);
+  // Корректировка состояния во время рендера (штатный паттерн React вместо эффекта):
+  // новый composeKey = новый запрос открытия формы, даже если экран уже открыт.
+  const [seenComposeKey, setSeenComposeKey] = useState<string | null>(null);
+  if (composeKey && composeKey !== seenComposeKey) {
+    setSeenComposeKey(composeKey);
+    setComposeOpen(true);
+  }
   const [showDone, setShowDone] = useState(false);
+  const [editing, setEditing] = useState<ShoppingItem | null>(null);
+  const [groupBy, setGroupBy] = useState<'horizon' | 'category'>('horizon');
+
+  useEffect(() => {
+    void kvGet<'horizon' | 'category'>('shopping.groupBy').then((v) =>
+      setGroupBy(v === 'category' ? 'category' : 'horizon'),
+    );
+  }, []);
 
   useEffect(() => {
     void kvGet<boolean>('shopping.showDone').then((v) => setShowDone(Boolean(v)));
@@ -36,16 +55,35 @@ export default function ShoppingScreen({ ready }: { ready: boolean }) {
     const byHorizon = new Map<Horizon, ShoppingItem[]>();
     for (const h of HORIZONS) byHorizon.set(h, []);
     for (const i of active) byHorizon.get(i.horizon)?.push(i);
+    // Группировка по категориям (приёмка 0.1.5): «вся молочка рядом» в магазине.
+    const byCategory = new Map<string, ShoppingItem[]>();
+    for (const i of active) {
+      const key = i.category?.trim() || 'Без категории';
+      const list = byCategory.get(key) ?? [];
+      list.push(i);
+      byCategory.set(key, list);
+    }
+    const categoryNames = [...byCategory.keys()].sort((a, b) =>
+      a === 'Без категории' ? 1 : b === 'Без категории' ? -1 : a.localeCompare(b, 'ru'),
+    );
     for (const list of byHorizon.values())
       list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    for (const list of byCategory.values())
+      list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     done.sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''));
-    return { byHorizon, done, activeCount: active.length, doneCount: done.length };
+    return {
+      byHorizon,
+      byCategory,
+      categoryNames,
+      done,
+      activeCount: active.length,
+      doneCount: done.length,
+    };
   }, [items]);
 
   if (!ready || !groups) {
     return (
       <div className="screen">
-        <Header count={0} />
         <Skeleton />
       </div>
     );
@@ -53,7 +91,35 @@ export default function ShoppingScreen({ ready }: { ready: boolean }) {
 
   return (
     <div className="screen">
-      <Header count={groups.activeCount} />
+      <div className="row row--between" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+        <div className="screen-subtitle" style={{ padding: 0 }}>
+          {groups.activeCount > 0 ? `${groups.activeCount} в списке` : 'ничего не нужно'}
+        </div>
+        <div className="chips" role="group" aria-label="Группировка списка">
+          <button
+            type="button"
+            className="chip"
+            aria-pressed={groupBy === 'horizon'}
+            onClick={() => {
+              setGroupBy('horizon');
+              void kvSet('shopping.groupBy', 'horizon');
+            }}
+          >
+            По сроку
+          </button>
+          <button
+            type="button"
+            className="chip"
+            aria-pressed={groupBy === 'category'}
+            onClick={() => {
+              setGroupBy('category');
+              void kvSet('shopping.groupBy', 'category');
+            }}
+          >
+            По категориям
+          </button>
+        </div>
+      </div>
 
       {!sync.configured && (
         <Banner tone="warn">
@@ -75,28 +141,55 @@ export default function ShoppingScreen({ ready }: { ready: boolean }) {
         />
       )}
 
-      {HORIZONS.map((h) => {
-        const list = groups.byHorizon.get(h) ?? [];
-        if (list.length === 0) return null;
-        return (
-          <section key={h} className="stack" aria-labelledby={`h-${h}`}>
-            <div className="row row--between">
-              <h2 className="section-title" id={`h-${h}`}>
-                {HORIZON_LABEL[h]} · {list.length}
-              </h2>
-            </div>
-            <div className="stack">
-              {list.map((item) => (
-                <ShoppingRow
-                  key={item.id}
-                  item={item}
-                  author={members?.find((m) => m.id === item.updatedBy)}
-                />
-              ))}
-            </div>
-          </section>
-        );
-      })}
+      {groupBy === 'horizon' &&
+        HORIZONS.map((h) => {
+          const list = groups.byHorizon.get(h) ?? [];
+          if (list.length === 0) return null;
+          return (
+            <section key={h} className="stack" aria-labelledby={`h-${h}`}>
+              <div className="row row--between">
+                <h2 className="section-title" id={`h-${h}`}>
+                  {HORIZON_LABEL[h]} · {list.length}
+                </h2>
+              </div>
+              <div className="stack">
+                {list.map((item) => (
+                  <ShoppingRow
+                    key={item.id}
+                    item={item}
+                    author={members?.find((m) => m.id === item.updatedBy)}
+                    onEdit={setEditing}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
+
+      {groupBy === 'category' &&
+        groups.categoryNames.map((name) => {
+          const list = groups.byCategory.get(name) ?? [];
+          if (list.length === 0) return null;
+          return (
+            <section key={name} className="stack" aria-labelledby={`c-${name}`}>
+              <div className="row row--between">
+                <h2 className="section-title" id={`c-${name}`}>
+                  {name} · {list.length}
+                </h2>
+              </div>
+              <div className="stack">
+                {list.map((item) => (
+                  <ShoppingRow
+                    key={item.id}
+                    item={item}
+                    author={members?.find((m) => m.id === item.updatedBy)}
+                    onEdit={setEditing}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
 
       {groups.doneCount > 0 && (
         <section className="stack">
@@ -129,6 +222,7 @@ export default function ShoppingScreen({ ready }: { ready: boolean }) {
                   key={item.id}
                   item={item}
                   author={members?.find((m) => m.id === item.updatedBy)}
+                  onEdit={setEditing}
                 />
               ))}
             </div>
@@ -146,27 +240,19 @@ export default function ShoppingScreen({ ready }: { ready: boolean }) {
       </button>
 
       {composeOpen && <AddShoppingSheet onClose={() => setComposeOpen(false)} />}
+      {editing && <AddShoppingSheet editing={editing} onClose={() => setEditing(null)} />}
     </div>
-  );
-}
-
-function Header({ count }: { count: number }) {
-  return (
-    <header className="screen-header">
-      <div>
-        <h1 className="screen-title">Покупки</h1>
-        <div className="screen-subtitle">{count > 0 ? `${count} в списке` : 'ничего не нужно'}</div>
-      </div>
-    </header>
   );
 }
 
 function ShoppingRow({
   item,
   author,
+  onEdit,
 }: {
   item: ShoppingItem;
   author?: { name: string; color: string } | null;
+  onEdit: (item: ShoppingItem) => void;
 }) {
   const meta = [
     item.qty !== null ? `${formatQty(item.qty)}${item.unit ? ` ${item.unit}` : ''}` : null,
@@ -189,7 +275,12 @@ function ShoppingRow({
         className="checkbox"
         onClick={() => void shoppingRepo.toggleDone(item.id)}
       />
-      <div className="grow">
+      <button
+        type="button"
+        className="grow item-hit"
+        aria-label={`Изменить «${item.title}»`}
+        onClick={() => onEdit(item)}
+      >
         <div className="row" style={{ gap: 6, minWidth: 0 }}>
           {author && (
             <span
@@ -198,10 +289,11 @@ function ShoppingRow({
               title={`Последнее изменение: ${author.name}`}
             />
           )}
-          <div className="item-title truncate">{item.title}</div>
+          {/* Без truncate: длинное название переносится и читается целиком (приёмка 0.1.5) */}
+          <div className="item-title">{item.title}</div>
         </div>
-        {meta && <div className="item-meta truncate">{meta}</div>}
-      </div>
+        {meta && <div className="item-meta">{meta}</div>}
+      </button>
       <button
         type="button"
         className="icon-btn"
@@ -218,12 +310,40 @@ function ShoppingRow({
  * Монтируется только когда открыт: состояние формы создаётся свежим при каждом
  * открытии, поэтому эффект-сброс не нужен (и не провоцирует каскадные рендеры).
  */
-export function AddShoppingSheet({ onClose }: { onClose: () => void }) {
-  const [text, setText] = useState('');
-  const [horizon, setHorizon] = useState<Horizon>('now');
-  const [category, setCategory] = useState('');
+export function AddShoppingSheet({
+  onClose,
+  editing,
+}: {
+  onClose: () => void;
+  editing?: ShoppingItem | null;
+}) {
+  const [text, setText] = useState(() =>
+    editing
+      ? `${editing.title}${editing.qty !== null ? ` ${formatQty(editing.qty)}${editing.unit ?? ''}` : ''}`
+      : '',
+  );
+  const [horizon, setHorizon] = useState<Horizon>(editing?.horizon ?? 'now');
+  const [category, setCategory] = useState(editing?.category ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const knownCategories = useLiveQuery(
+    async () => {
+      const rows = await db.shopping
+        .where('deletedAt')
+        .equals(null as unknown as string)
+        .toArray();
+      const set = new Set<string>();
+      for (const r of rows) if (r.category?.trim()) set.add(r.category.trim());
+      return [...set].sort((a, b) => a.localeCompare(b, 'ru'));
+    },
+    [],
+    undefined,
+  );
+  const sameTitle = useLiveQuery(async () => {
+    const key = canonicalKey(parseItem(text).title);
+    if (!key) return undefined;
+    return db.shopping.where('canonicalKey').equals(key).first();
+  }, [text]);
 
   const preview = useMemo(() => (text.trim() ? parseItem(text) : null), [text]);
 
@@ -247,7 +367,19 @@ export function AddShoppingSheet({ onClose }: { onClose: () => void }) {
         setError('Не удалось разобрать название');
         return;
       }
-      await shoppingRepo.add(parsed);
+      if (editing) {
+        // Правка доступна любому участнику семьи и попадает в семейную ленту
+        // (приёмка 0.1.5): update пишет rev+1 и событие 'updated'.
+        await shoppingRepo.update(editing.id, {
+          title: parsed.title,
+          qty: parsed.qty,
+          unit: parsed.unit,
+          category: parsed.category,
+          horizon: parsed.horizon,
+        });
+      } else {
+        await shoppingRepo.add(parsed);
+      }
       setText('');
       onClose();
     } catch (e) {
@@ -258,7 +390,7 @@ export function AddShoppingSheet({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Sheet open title="Новая покупка" onClose={onClose}>
+    <Sheet open title={editing ? 'Изменить покупку' : 'Новая покупка'} onClose={onClose}>
       <div className="stack">
         <Field
           label="Что купить"
@@ -299,7 +431,10 @@ export function AddShoppingSheet({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
-        <Field label="Категория" hint="Необязательно. Полный список категорий — ЭТАП 4">
+        <Field
+          label="Категория"
+          hint="Необязательно. Категория группирует список в магазине: переключите «По категориям» на экране покупок."
+        >
           <input
             className="input"
             value={category}
@@ -307,6 +442,33 @@ export function AddShoppingSheet({ onClose }: { onClose: () => void }) {
             onChange={(e) => setCategory(e.target.value)}
           />
         </Field>
+        {(knownCategories?.length || sameTitle?.category) && (
+          <div className="chips" role="group" aria-label="Быстрые категории">
+            {sameTitle?.category && sameTitle.category !== category && (
+              <button
+                type="button"
+                className="chip chip--accent"
+                onClick={() => setCategory(sameTitle.category as string)}
+              >
+                обычно: {sameTitle.category}
+              </button>
+            )}
+            {(knownCategories ?? [])
+              .filter((c) => c !== sameTitle?.category)
+              .slice(0, 6)
+              .map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className="chip"
+                  aria-pressed={category === c}
+                  onClick={() => setCategory(c)}
+                >
+                  {c}
+                </button>
+              ))}
+          </div>
+        )}
 
         <button
           type="button"
@@ -314,7 +476,7 @@ export function AddShoppingSheet({ onClose }: { onClose: () => void }) {
           disabled={busy}
           onClick={() => void submit()}
         >
-          {busy ? 'Добавляем…' : 'Добавить'}
+          {busy ? 'Сохраняем…' : editing ? 'Сохранить' : 'Добавить'}
         </button>
       </div>
     </Sheet>

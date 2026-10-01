@@ -46,7 +46,20 @@ function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: strin
         <TopBar />
         <Routes>
           <Route path="/" element={<HomeScreen ready={ready} />} />
-          <Route path="/shopping" element={<ShoppingScreen ready={ready} />} />
+          <Route
+            path="/shopping"
+            element={
+              <ShoppingScreen
+                ready={ready}
+                composeKey={
+                  loc.pathname === '/shopping' &&
+                  (loc.state as { compose?: boolean } | null)?.compose === true
+                    ? loc.key
+                    : null
+                }
+              />
+            }
+          />
           <Route path="/tasks" element={<TasksScreen />} />
           <Route path="/deadlines" element={<DeadlinesScreen />} />
           <Route path="/settings" element={<SettingsScreen ready={ready} />} />
@@ -183,9 +196,25 @@ function UpdatedNotice({ from }: { from: string | null }) {
  * неотправленные изменения («Офлайн · 3 в очереди»). В локальном режиме числа нет:
  * там оно бессмысленно и пугает (дефект «Локальный режим 10» из приёмки 0.1.2).
  */
+const ROUTE_TITLES: Record<string, string> = {
+  '/': 'Family Hub',
+  '/shopping': 'Покупки',
+  '/tasks': 'Дела',
+  '/deadlines': 'Сроки',
+  '/settings': 'Настройки',
+};
+
+/**
+ * Одна верхняя строка: название раздела слева, статус синхронизации справа.
+ * Приёмка 0.1.5: раньше статус занимал первую строку один, а название приложения
+ * начиналось ниже — место съедалось зря.
+ */
 function TopBar() {
+  const loc = useLocation();
+  const title = ROUTE_TITLES[loc.pathname] ?? 'Family Hub';
   return (
     <div className="topbar">
+      <div className="topbar-title truncate">{title}</div>
       <StatusPill />
     </div>
   );

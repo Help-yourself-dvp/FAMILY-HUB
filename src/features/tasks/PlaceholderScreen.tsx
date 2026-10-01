@@ -6,7 +6,6 @@ export default function TasksScreen() {
     <div className="screen">
       <header className="screen-header">
         <div>
-          <h1 className="screen-title">Дела</h1>
           <div className="screen-subtitle">модуль ещё не реализован</div>
         </div>
       </header>

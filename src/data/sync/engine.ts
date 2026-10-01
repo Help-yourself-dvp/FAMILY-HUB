@@ -104,72 +104,85 @@ export async function syncNow(_reason: string): Promise<void> {
 
   running = true;
   const startedAt = Date.now();
-  const kinds = [...ACTIVE_SYNC_KINDS];
-  log.emit({ type: 'sync:started', kinds });
-  setSyncState({ phase: 'syncing', online: true, configured: true });
+  // Приёмка 0.1.5: после блокировки экрана цикл мог оставить running=true навсегда
+  // (исключение в хвосте цикла) — все следующие синхронизации молча пропускались,
+  // «Синхронизация…» не заканчивалась до перезапуска. Теперь finally гарантирован.
+  try {
+    const kinds = [...ACTIVE_SYNC_KINDS];
+    log.emit({ type: 'sync:started', kinds });
+    setSyncState({ phase: 'syncing', online: true, configured: true });
 
-  let pushed = 0;
-  let pulled = 0;
-  let conflicts = 0;
-  let failure: { code: string; message: string } | null = null;
+    let pushed = 0;
+    let pulled = 0;
+    let conflicts = 0;
+    let failure: { code: string; message: string } | null = null;
 
-  // Виды независимы (отдельные файлы в репозитории) - идём параллельно: меньше
-  // худшее время цикла и уже окно, в котором пользователь ждёт.
-  const outcomes = await Promise.all(
-    kinds.map(async (kind): Promise<Outcome> => {
-      try {
-        const r = await syncKind<Syncable>(
-          kind,
-          localPort as LocalStorePort,
-          remotePort as RemoteStorePort,
-          {
-            nowIso: () => new Date().toISOString(),
-            onRetry: (k, attempt) =>
-              log.emit({ type: 'sync:retry', kind: k, attempt, reason: 'conflict' }),
-            onConflict: (k, count) => log.emit({ type: 'sync:conflict', kind: k, count }),
-          },
-        );
-        return { kind, ok: r, err: null };
-      } catch (e) {
-        return { kind, ok: null, err: e };
+    // Виды независимы (отдельные файлы в репозитории) - идём параллельно: меньше
+    // худшее время цикла и уже окно, в котором пользователь ждёт.
+    const outcomes = await Promise.all(
+      kinds.map(async (kind): Promise<Outcome> => {
+        try {
+          const r = await syncKind<Syncable>(
+            kind,
+            localPort as LocalStorePort,
+            remotePort as RemoteStorePort,
+            {
+              nowIso: () => new Date().toISOString(),
+              onRetry: (k, attempt) =>
+                log.emit({ type: 'sync:retry', kind: k, attempt, reason: 'conflict' }),
+              onConflict: (k, count) => log.emit({ type: 'sync:conflict', kind: k, count }),
+            },
+          );
+          return { kind, ok: r, err: null };
+        } catch (e) {
+          return { kind, ok: null, err: e };
+        }
+      }),
+    );
+    for (const o of outcomes) {
+      if (o.ok) {
+        pushed += o.ok.pushed;
+        pulled += o.ok.pulled;
+        conflicts += o.ok.conflicts;
+      } else if (!failure) {
+        const e = o.err;
+        const code = e instanceof ConflictError ? 'conflict' : errorCode(e);
+        const message = e instanceof Error ? e.message : String(e);
+        failure = { code, message };
+        log.emit({ type: 'sync:error', kind: o.kind, code, message });
       }
-    }),
-  );
-  for (const o of outcomes) {
-    if (o.ok) {
-      pushed += o.ok.pushed;
-      pulled += o.ok.pulled;
-      conflicts += o.ok.conflicts;
-    } else if (!failure) {
-      const e = o.err;
-      const code = e instanceof ConflictError ? 'conflict' : errorCode(e);
-      const message = e instanceof Error ? e.message : String(e);
-      failure = { code, message };
-      log.emit({ type: 'sync:error', kind: o.kind, code, message });
     }
-  }
 
-  const durationMs = Date.now() - startedAt;
-  const lastSuccessAt = failure ? undefined : new Date().toISOString();
+    const durationMs = Date.now() - startedAt;
+    setSyncState({
+      phase: failure ? 'error' : 'synced',
+      lastSuccessAt: failure ? undefined : new Date().toISOString(),
+      lastError: failure ? { ...failure, at: new Date().toISOString() } : null,
+      lastDurationMs: durationMs,
+      lastPushed: pushed,
+      lastPulled: pulled,
+      lastConflicts: conflicts,
+      pendingCount: await countPending(),
+      rateRemaining: (remotePort as GitHubRemoteStore).rateRemaining ?? undefined,
+    });
 
-  setSyncState({
-    phase: failure ? 'error' : 'synced',
-    lastSuccessAt,
-    lastError: failure ? { ...failure, at: new Date().toISOString() } : null,
-    lastDurationMs: durationMs,
-    lastPushed: pushed,
-    lastPulled: pulled,
-    lastConflicts: conflicts,
-    pendingCount: await countPending(),
-    rateRemaining: (remotePort as GitHubRemoteStore).rateRemaining ?? undefined,
-  });
-
-  log.emit({ type: 'sync:completed', kinds, durationMs, pushed, pulled });
-  running = false;
-
-  if (queued) {
-    queued = false;
-    void syncNow('queued');
+    log.emit({ type: 'sync:completed', kinds, durationMs, pushed, pulled });
+  } catch (e) {
+    const code = 'internal';
+    const message = e instanceof Error ? e.message : String(e);
+    log.emit({ type: 'sync:error', kind: 'internal', code, message });
+    setSyncState({
+      phase: 'error',
+      lastError: { code, message, at: new Date().toISOString() },
+      lastDurationMs: Date.now() - startedAt,
+      pendingCount: await countPending(),
+    });
+  } finally {
+    running = false;
+    if (queued) {
+      queued = false;
+      void syncNow('queued');
+    }
   }
 }
 

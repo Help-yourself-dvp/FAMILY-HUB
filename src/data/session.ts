@@ -4,7 +4,7 @@
  * Честная модель (§2.5): в приложении НЕТ логина. Идентичность — самодекларация,
  * хранится только на этом устройстве. `updatedBy` в сущностях = deviceId.
  */
-import { kvGet, kvSet, KV_KEYS } from './db';
+import { db, kvGet, kvSet, KV_KEYS } from './db';
 import { newDeviceId, newId } from '../shared/id';
 
 export interface Session {
@@ -38,7 +38,30 @@ export async function loadSession(): Promise<Session> {
   const color = (await kvGet<string>(KV_KEYS.profileColor)) ?? PROFILE_COLORS[0];
   const memberEntityId = (await kvGet<string>('profile.memberId')) ?? null;
   cached = { deviceId, name, color, memberEntityId };
+  await publishMember(cached);
   return cached;
+}
+
+/**
+ * Публикует профиль устройства в таблицу members: без этой строки цвет и имя
+ * автора существуют только в kv, и семья (и точки у позиций) их не видит —
+ * дефект приёмки 0.1.5 («менял цвет, но нигде нет отметок»).
+ */
+async function publishMember(s: Session): Promise<void> {
+  const now = new Date().toISOString();
+  const cur = await db.members.get(s.deviceId);
+  await db.members.put({
+    id: s.deviceId,
+    kind: 'members',
+    name: s.name.trim() || 'Без имени',
+    color: s.color,
+    emoji: null,
+    rev: (cur?.rev ?? 0) + 1,
+    createdAt: cur?.createdAt ?? now,
+    updatedAt: now,
+    updatedBy: s.deviceId,
+    deletedAt: null,
+  });
 }
 
 export function session(): Session {
@@ -52,6 +75,7 @@ export async function updateProfile(patch: { name?: string; color?: string }): P
   if (patch.name !== undefined) await kvSet(KV_KEYS.profileName, patch.name);
   if (patch.color !== undefined) await kvSet(KV_KEYS.profileColor, patch.color);
   cached = next;
+  await publishMember(next);
   return next;
 }
 

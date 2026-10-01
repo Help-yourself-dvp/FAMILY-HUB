@@ -23,14 +23,9 @@ export default function SettingsScreen({ ready }: { ready: boolean }) {
 
   return (
     <div className="screen">
-      <header className="screen-header">
-        <div>
-          <h1 className="screen-title">Настройки</h1>
-          <div className="screen-subtitle">
-            версия {__APP_VERSION__} · схема данных v{SCHEMA_VERSION}
-          </div>
-        </div>
-      </header>
+      <div className="screen-subtitle">
+        версия {__APP_VERSION__} · схема данных v{SCHEMA_VERSION}
+      </div>
 
       {!ready && <Banner tone="warn">Инициализация…</Banner>}
 
