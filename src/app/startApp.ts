@@ -18,6 +18,7 @@ import { db } from '../data/db';
 import { loadSession } from '../data/session';
 import { initTheme, type ThemeMode } from './theme';
 import { bootstrap, registerServiceWorker, type AppConfig } from './bootstrap';
+import { startHealthWatch } from '../notifications/healthWatch';
 import { seedDemoData } from '../features/home/demoData';
 import { wipeLocalData } from '../data/remote/authStrategy';
 import { kvDel, kvGet, kvSet, KV_KEYS } from '../data/db';
@@ -77,6 +78,10 @@ export async function startApp(): Promise<StartResult> {
 
   // 4. Service Worker — улучшение, а не условие запуска.
   await registerServiceWorker();
+
+  // 4.5. Наблюдатель здоровья: уведомляем только об ошибках, требующих действия
+  //      (решение владельца 2026-10-01: потерю сети не уведомляем).
+  startHealthWatch();
 
   // 5. Пометка «обновлено с версии X» — если прошлый запуск был другой версией.
   //    'unknown' = локальные данные уже есть (значит, не первая установка), но номер

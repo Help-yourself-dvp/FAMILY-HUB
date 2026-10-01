@@ -17,11 +17,17 @@ import {
   type SupportReport,
 } from '../../notifications/channels';
 import { Icon, Switch } from '../../design/ui';
+import { kvGet, kvSet } from '../../data/db';
 
 export default function NotificationsSection() {
   const [support, setSupport] = useState<Record<string, SupportReport>>({});
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
   const [ready, setReady] = useState(false);
+  const [shoppingPush, setShoppingPush] = useState(false);
+
+  useEffect(() => {
+    void kvGet<boolean>('notify.shoppingPush').then((v) => setShoppingPush(Boolean(v)));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +73,36 @@ export default function NotificationsSection() {
             Три независимых канала. Каждый включается своим переключателем; общий смысл — чем выше
             уровень, тем громче напоминание и тем больше условий для его работы.
           </p>
+
+          <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
+            <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'nowrap' }}>
+              <span className="badge" style={{ flex: '0 0 auto' }}>
+                push
+              </span>
+              <div className="strong grow truncate" style={{ fontSize: 'var(--fs-md)' }}>
+                Push об изменениях корзины
+              </div>
+            </div>
+            <p className="small" style={{ margin: 0, lineHeight: 1.55, color: 'var(--text-2)' }}>
+              Решение семьи от 01.10.2026: выключено по умолчанию и считается мерой «на всякий
+              случай». Даже во включённом состоянии изменения приходят дайджестом не чаще раза в 30
+              минут, а не на каждую позицию. Напоминания о сроках и ошибки, требующие действия,
+              живут отдельными уровнями ниже.
+            </p>
+            <div className="row--between row" style={{ gap: 'var(--sp-3)', paddingTop: 2 }}>
+              <span className="small" style={{ color: 'var(--text-2)' }}>
+                {shoppingPush ? 'включено' : 'выключено'}
+              </span>
+              <Switch
+                checked={shoppingPush}
+                label="Push об изменениях корзины"
+                onChange={(v) => {
+                  setShoppingPush(v);
+                  void kvSet('notify.shoppingPush', v);
+                }}
+              />
+            </div>
+          </div>
 
           {!ready ? (
             <div className="card">
