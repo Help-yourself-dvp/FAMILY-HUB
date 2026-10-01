@@ -113,12 +113,38 @@ export async function restartSync(): Promise<boolean> {
 }
 
 /** Регистрация Service Worker — только в production-сборке (§6.1). */
+type PeriodicSyncManager = {
+  register(tag: string, options: { minInterval: number }): Promise<void>;
+};
+
+async function registerPeriodicReminders(reg: ServiceWorkerRegistration): Promise<void> {
+  try {
+    const withPeriodic = reg as ServiceWorkerRegistration & { periodicSync?: PeriodicSyncManager };
+    if (!withPeriodic.periodicSync) return; // iPhone/Safari: канала нет, напоминания в приложении
+    const status = await navigator.permissions?.query({
+      name: 'periodic-background-sync' as PermissionName,
+    });
+    if (status && status.state !== 'granted') return;
+    await withPeriodic.periodicSync.register('fh-reminders', {
+      minInterval: 12 * 60 * 60 * 1000,
+    });
+  } catch {
+    // Не поддержано или не разрешено: напоминания остаются в приложении — не ошибка.
+  }
+}
+
 export async function registerServiceWorker(): Promise<void> {
   if (!import.meta.env.PROD) return;
   if (!('serviceWorker' in navigator)) return;
   try {
     const base = import.meta.env.BASE_URL || '/';
     const reg = await navigator.serviceWorker.register(`${base}sw.js`, { scope: base });
+    // Periodic Background Sync (Android/Chrome, установленная PWA): браузер сам
+    // будит Service Worker раз в ~12 часов — напоминания о сроках приходят даже
+    // при закрытом приложении и выключенном экране, БЕЗ сервера и БЕЗ ветки main
+    // (решение владельца 2026-10-01). Интервал выбирает Chrome по своей политике.
+    void registerPeriodicReminders(reg);
+
     reg.addEventListener('updatefound', () => {
       const nw = reg.installing;
       if (!nw) return;

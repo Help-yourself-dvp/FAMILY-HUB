@@ -16,7 +16,7 @@ import {
   type NotificationChannel,
   type SupportReport,
 } from '../../notifications/channels';
-import { Icon, Switch } from '../../design/ui';
+import { Banner, Icon, Switch } from '../../design/ui';
 import { kvGet, kvSet } from '../../data/db';
 
 export default function NotificationsSection() {
@@ -24,6 +24,7 @@ export default function NotificationsSection() {
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
   const [ready, setReady] = useState(false);
   const [shoppingPush, setShoppingPush] = useState(false);
+  const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'err'; text: string } | null>(null);
 
   useEffect(() => {
     void kvGet<boolean>('notify.shoppingPush').then((v) => setShoppingPush(Boolean(v)));
@@ -54,12 +55,26 @@ export default function NotificationsSection() {
     const ch = notificationChannels.byId(id as 'local-foreground');
     if (!ch) return;
     if (on && ch.level === 0) {
-      const res = await ch.enable();
-      setEnabled((p) => ({ ...p, [id]: res.enabled }));
+      try {
+        const res = await ch.enable();
+        setEnabled((p) => ({ ...p, [id]: res.enabled }));
+        setNotice(
+          res.enabled
+            ? { tone: 'ok', text: 'Канал включён на этом устройстве.' }
+            : { tone: 'warn', text: res.reason ?? 'Не удалось включить канал.' },
+        );
+      } catch (e) {
+        setEnabled((p) => ({ ...p, [id]: false }));
+        setNotice({ tone: 'err', text: describeEnableError(e) });
+      }
       return;
     }
     setEnabled((p) => ({ ...p, [id]: on }));
   }, []);
+
+  if (notice) {
+    // Баннер причины — владелец видел «переключатель не реагирует»: молчание недопустимо.
+  }
 
   return (
     <section className="stack">
@@ -104,6 +119,15 @@ export default function NotificationsSection() {
               />
             </div>
           </div>
+
+          {notice && (
+            <Banner tone={notice.tone === 'err' ? 'err' : notice.tone === 'ok' ? 'ok' : 'warn'}>
+              <div className="grow small">{notice.text}</div>
+              <button type="button" className="btn btn--sm" onClick={() => setNotice(null)}>
+                Понятно
+              </button>
+            </Banner>
+          )}
 
           {!ready ? (
             <div className="card">
@@ -175,8 +199,9 @@ function ChannelCard({
         )}
         {c.level === 2 && !unsupported && (
           <div className="tiny" style={{ color: 'var(--warn)' }}>
-            Включим после живой проверки на ваших телефонах (ЭТАП 3): пока мы не увидели системное
-            уведомление на заблокированном экране, обещать его работу нельзя.
+            Системный push при закрытом приложении. На Android нужен сервис Google (без него канал
+            честно скажет «недоступен» — напоминания всё равно придут фоновой проверкой и при
+            открытии приложения). На iPhone — iOS 16.4+ и установленное на экран Домой приложение.
           </div>
         )}
       </div>
@@ -194,4 +219,13 @@ function ChannelCard({
       </div>
     </div>
   );
+}
+
+/** Человек вместо DOMException: почему push не включился на этом устройстве. */
+function describeEnableError(e: unknown): string {
+  const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+  if (/push|subscription|registr/iu.test(msg)) {
+    return `Web Push недоступен на этом устройстве (${msg}). На Android для push нужны сервисы Google. Напоминания всё равно придут: фоновой проверкой (Android) и при открытии приложения.`;
+  }
+  return `Не удалось включить канал: ${msg}`;
 }

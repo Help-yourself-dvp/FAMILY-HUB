@@ -62,7 +62,7 @@ export function Sheet({
     <>
       <div className="sheet-scrim" onClick={onClose} aria-hidden="true" />
       <div
-        className="sheet"
+        className={`sheet${vv && vv.covered > 4 ? ' sheet--lifted' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

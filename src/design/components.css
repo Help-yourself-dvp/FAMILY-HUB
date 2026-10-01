@@ -244,6 +244,11 @@
   animation: sheet-in var(--dur) var(--ease) forwards;
   overscroll-behavior: contain;
 }
+/* Когда sheet поднят над клавиатурой, нижний безопасный отступ не нужен:
+   иначе между кнопкой и клавиатурой висит пустая полоса (приёмка 0.3.1). */
+.sheet--lifted .sheet-footer {
+  padding-bottom: var(--sp-3);
+}
 .sheet-footer {
   position: sticky;
   bottom: 0;

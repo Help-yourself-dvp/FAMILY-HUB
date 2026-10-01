@@ -68,7 +68,7 @@ export default function DeadlinesScreen({ ready }: { ready: boolean }) {
             <div className="strong">Локальный режим</div>
             <div className="small">
               Сроки хранятся только на этом устройстве. Подключите семейное хранилище в настройках,
-              чтобы напоминания были общими.
+              чтобы напоминания были общими для всей семьи.
             </div>
           </div>
         </Banner>

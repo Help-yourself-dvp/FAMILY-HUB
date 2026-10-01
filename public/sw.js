@@ -192,3 +192,97 @@ self.addEventListener('pushsubscriptionchange', (event) => {
     })(),
   );
 });
+
+/* ---------------------------------------------------------------------------
+ * Фоновые напоминания о сроках БЕЗ сервера (Android, Periodic Background Sync).
+ * Chrome будит SW примерно раз в 12 часов; мы читаем локальную базу, находим
+ * сработавшие сегодня ступени и показываем системное уведомление — работает при
+ * закрытом приложении и выключенном экране. Каждое напоминание — строго один раз
+ * (маркеры в kv того же IndexedDB «family-hub»).
+ * ------------------------------------------------------------------------- */
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'fh-reminders') {
+    event.waitUntil(checkRemindersOffline());
+  }
+});
+
+function openFamilyDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('family-hub');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbGetAll(db, store) {
+  return new Promise((resolve, reject) => {
+    if (!db.objectStoreNames.contains(store)) return resolve([]);
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbPut(db, store, value) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(value);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function moscowToday() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' });
+}
+
+function daysUntilUtc(due, from) {
+  const a = new Date(from + 'T12:00:00Z').getTime();
+  const b = new Date(due + 'T12:00:00Z').getTime();
+  return Math.round((b - a) / 86400000);
+}
+
+async function checkRemindersOffline() {
+  let db;
+  try {
+    db = await openFamilyDb();
+  } catch {
+    return; // базы нет — напоминать некому
+  }
+  try {
+    const deadlines = await idbGetAll(db, 'deadlines');
+    const kvRows = await idbGetAll(db, 'kv');
+    const marked = new Set();
+    for (const row of kvRows) {
+      if (typeof row.key === 'string' && row.key.startsWith('remind.sw.')) marked.add(row.key);
+    }
+    const from = moscowToday();
+    for (const d of deadlines) {
+      if (!d || d.deletedAt || d.visibility === 'private' || !d.dueDate) continue;
+      const steps = Array.isArray(d.remindersDays) ? d.remindersDays : [];
+      const left = daysUntilUtc(d.dueDate, from);
+      const hits = left < 0 ? (steps.length ? ['overdue'] : []) : steps.filter((r) => r === left);
+      for (const hit of hits) {
+        const marker = 'remind.sw.' + d.id + '.' + d.dueDate + '.' + String(hit);
+        if (marked.has(marker)) continue;
+        const body =
+          hit === 'overdue'
+            ? 'Срок «' + d.title + '» прошёл — проверьте, что сделано.'
+            : hit === 0
+              ? 'Сегодня срок: «' + d.title + '».'
+              : '«' + d.title + '»: осталось ' + hit + ' дн. (до ' + d.dueDate + ').';
+        await self.registration.showNotification('Family Hub: срок', {
+          body,
+          tag: marker,
+          lang: 'ru',
+          data: { route: '#/deadlines' },
+        });
+        await idbPut(db, 'kv', { key: marker, value: true });
+        marked.add(marker);
+      }
+    }
+  } finally {
+    db.close();
+  }
+}

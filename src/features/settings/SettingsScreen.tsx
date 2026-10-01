@@ -72,23 +72,28 @@ export default function SettingsScreen({ ready }: { ready: boolean }) {
         <div className="row" style={{ gap: 8 }}>
           <Icon name="info" size={16} />
           <span className="strong small">О приложении</span>
+          <span className="badge" style={{ marginLeft: 'auto' }}>
+            версия {__APP_VERSION__}
+          </span>
         </div>
         <div className="tiny muted">
-          Family Hub — приватное семейное приложение. Данные справочные и не заменяют специалиста
-          (§6.22). Приложение не хранит номера документов, пароли и сканы: для напоминания
-          достаточно названия и даты (§6.21).
+          Family Hub — приватное семейное приложение: общий список покупок и напоминания о сроках.
+          Работает без интернета, синхронизируется через ваше личное хранилище GitHub, обновляется
+          само. Приложение не хранит номера документов, пароли и сканы: для напоминания достаточно
+          названия и даты.
         </div>
         <div className="tiny mono muted">
-          ЭТАП 1 — сквозной скелет: синхронизация покупок между устройствами.
-          {isIos() ? ' iOS' : ''}
+          Схема данных v{SCHEMA_VERSION}
+          {isIos() ? ' · iOS' : ''}
           {isStandalone() ? ' · PWA установлено' : ' · работает в браузере'}
         </div>
       </section>
 
       <div style={{ height: 24 }} aria-hidden="true" />
       <div className="tiny muted" style={{ textAlign: 'center' }}>
+        Family Hub {__APP_VERSION__}
         {sync.rateRemaining !== null
-          ? `Связь с хранилищем: запас ${sync.rateRemaining} из 5000 запросов в час (GitHub ограничивает всех; нам хватает с огромным запасом)`
+          ? ` · связь с хранилищем: запас ${sync.rateRemaining} из 5000 запросов в час (нам хватает с огромным запасом)`
           : ''}
       </div>
     </div>

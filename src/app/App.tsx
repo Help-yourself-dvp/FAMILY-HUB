@@ -145,16 +145,10 @@ function QuickAddFab() {
           </button>
           <button type="button" className="btn btn--block" onClick={() => go('/tasks')} disabled>
             <Icon name="check" size={20} /> Добавить дело
-            <span className="badge">ЭТАП 7</span>
+            <span className="badge">в разработке</span>
           </button>
-          <button
-            type="button"
-            className="btn btn--block"
-            onClick={() => go('/deadlines')}
-            disabled
-          >
+          <button type="button" className="btn btn--block" onClick={() => go('/deadlines')}>
             <Icon name="calendar" size={20} /> Добавить срок
-            <span className="badge">ЭТАП 6</span>
           </button>
         </div>
       </Sheet>

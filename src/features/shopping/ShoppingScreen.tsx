@@ -377,6 +377,18 @@ export function AddShoppingSheet({
     window.setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 250);
   };
 
+  // Массовый ввод (просьба владельца): «бананы 4 шт, хлеб, порошок» — каждая часть
+  // разбирается отдельно; категория подтягивается из прошлых покупок с тем же
+  // названием, чтобы в магазине группа «По категориям» наполнялась сама.
+  const segments = useMemo(
+    () =>
+      text
+        .split(/[,;\n]+/u)
+        .map((x) => x.trim())
+        .filter(Boolean),
+    [text],
+  );
+
   const submit = async () => {
     const raw = text.trim();
     if (!raw) {
@@ -386,6 +398,33 @@ export function AddShoppingSheet({
     setBusy(true);
     setError(null);
     try {
+      if (!editing && segments.length > 1) {
+        let added = 0;
+        for (const seg of segments) {
+          const parsedSeg: NewShoppingInput = {
+            ...parseItem(seg),
+            category: category.trim() || null,
+            horizon,
+          };
+          if (!parsedSeg.title) continue;
+          if (!parsedSeg.category) {
+            const prev = await db.shopping
+              .where('canonicalKey')
+              .equals(canonicalKey(parsedSeg.title))
+              .first();
+            if (prev?.category) parsedSeg.category = prev.category;
+          }
+          await shoppingRepo.add(parsedSeg);
+          added += 1;
+        }
+        if (added === 0) {
+          setError('Не удалось разобрать ни одной позиции');
+          return;
+        }
+        setText('');
+        onClose();
+        return;
+      }
       // Быстрый ввод «молоко 2, хлеб, бананы 2 кг» полностью появится в ЭТАПЕ 5.
       // Уже сейчас строка разбирается на название/количество/единицу.
       const parsed: NewShoppingInput = {
@@ -425,9 +464,15 @@ export function AddShoppingSheet({
         <Field
           label="Что купить"
           hint={
-            preview && preview.qty !== null
-              ? `Разобрано: «${preview.title}» · ${formatQty(preview.qty)}${preview.unit ? ` ${preview.unit}` : ''}`
-              : 'Можно диктовать голосом — используется системная диктовка клавиатуры'
+            !editing && segments.length > 1
+              ? `Добавим ${segments.length} поз.: ${segments
+                  .map((sg) => parseItem(sg).title || sg)
+                  .join(', ')}`
+              : preview && preview.qty !== null
+                ? `Разобрано: «${preview.title}» · ${formatQty(preview.qty)}${
+                    preview.unit ? ` ${preview.unit}` : ''
+                  }`
+                : 'Можно через запятую: «бананы 4 шт, хлеб, порошок». Есть голосовой ввод.'
           }
           error={error}
         >
@@ -436,7 +481,7 @@ export function AddShoppingSheet({
             value={text}
             autoFocus
             enterKeyHint="done"
-            placeholder="Например: бананы 2 кг"
+            placeholder="Например: бананы 4 шт, хлеб, порошок"
             onChange={(e) => setText(e.target.value)}
             onFocus={revealOnFocus}
             onKeyDown={(e) => {
@@ -535,7 +580,13 @@ export function AddShoppingSheet({
             disabled={busy}
             onClick={() => void submit()}
           >
-            {busy ? 'Сохраняем…' : editing ? 'Сохранить' : 'Добавить'}
+            {busy
+              ? 'Сохраняем…'
+              : editing
+                ? 'Сохранить'
+                : segments.length > 1
+                  ? `Добавить ${segments.length}`
+                  : 'Добавить'}
           </button>
         </div>
       </div>
