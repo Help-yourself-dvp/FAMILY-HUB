@@ -9,6 +9,7 @@ import { Icon, Sheet, type IconName } from '../design/ui';
 import { useSyncState } from './hooks';
 import { PHASE_LABEL } from '../data/sync/state';
 import { flushNow } from '../data/sync/engine';
+import { ErrorBoundary } from './ErrorBoundary';
 import HomeScreen from '../features/home/HomeScreen';
 import ShoppingScreen from '../features/shopping/ShoppingScreen';
 import TasksScreen from '../features/tasks/PlaceholderScreen';
@@ -40,35 +41,37 @@ function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: strin
   const loc = useLocation();
   return (
     <>
-      <div className="app-shell">
-        <UpdateBanner />
-        <UpdatedNotice from={updatedFrom} />
-        <TopBar />
-        <Routes>
-          <Route path="/" element={<HomeScreen ready={ready} />} />
-          <Route
-            path="/shopping"
-            element={
-              <ShoppingScreen
-                ready={ready}
-                composeKey={
-                  loc.pathname === '/shopping' &&
-                  (loc.state as { compose?: boolean } | null)?.compose === true
-                    ? loc.key
-                    : null
-                }
-              />
-            }
-          />
-          <Route path="/tasks" element={<TasksScreen />} />
-          <Route path="/deadlines" element={<DeadlinesScreen />} />
-          <Route path="/settings" element={<SettingsScreen ready={ready} />} />
-          <Route path="*" element={<HomeScreen ready={ready} />} />
-        </Routes>
-        {/* key по маршруту: sheet закрывается при навигации без setState в эффекте */}
-        <QuickAddFab key={loc.pathname} />
-        <TabBar />
-      </div>
+      <ErrorBoundary>
+        <div className="app-shell">
+          <UpdateBanner />
+          <UpdatedNotice from={updatedFrom} />
+          <TopBar />
+          <Routes>
+            <Route path="/" element={<HomeScreen ready={ready} />} />
+            <Route
+              path="/shopping"
+              element={
+                <ShoppingScreen
+                  ready={ready}
+                  composeKey={
+                    loc.pathname === '/shopping' &&
+                    (loc.state as { compose?: boolean } | null)?.compose === true
+                      ? loc.key
+                      : null
+                  }
+                />
+              }
+            />
+            <Route path="/tasks" element={<TasksScreen />} />
+            <Route path="/deadlines" element={<DeadlinesScreen />} />
+            <Route path="/settings" element={<SettingsScreen ready={ready} />} />
+            <Route path="*" element={<HomeScreen ready={ready} />} />
+          </Routes>
+          {/* key по маршруту: sheet закрывается при навигации без setState в эффекте */}
+          <QuickAddFab key={loc.pathname} />
+          <TabBar />
+        </div>
+      </ErrorBoundary>
     </>
   );
 }

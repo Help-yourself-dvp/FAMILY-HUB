@@ -328,12 +328,12 @@ export function AddShoppingSheet({
   const [error, setError] = useState<string | null>(null);
   const knownCategories = useLiveQuery(
     async () => {
-      const rows = await db.shopping
-        .where('deletedAt')
-        .equals(null as unknown as string)
-        .toArray();
+      // ВАЖНО: equals(null) бросает «Invalid key» (null — не ключ IndexedDB).
+      // Дефект 0.1.6: исключение падало при открытии формы -> белый экран на обоих
+      // телефонах. Выборка живых строк — только фильтром в JS.
+      const rows = await db.shopping.toArray();
       const set = new Set<string>();
-      for (const r of rows) if (r.category?.trim()) set.add(r.category.trim());
+      for (const r of rows) if (!r.deletedAt && r.category?.trim()) set.add(r.category.trim());
       return [...set].sort((a, b) => a.localeCompare(b, 'ru'));
     },
     [],
