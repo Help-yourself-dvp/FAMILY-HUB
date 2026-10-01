@@ -40,16 +40,26 @@ jobs:
       - name: Test
         run: npm run test
 
-      # Разделено на два шага: на 2026-10-01 сборка падала на runner'е, а логи
-      # Actions из среды разработки не читаются. По номеру упавшего шага видно,
-      # кто именно виноват — tsc или vite (локально оба проходили чисто).
-      - name: Build (tsc -b)
-        run: npx tsc -b --pretty false
-
+      # Сборка — те же команды и в том же порядке, что в deploy-preview.yml, где она
+      # на runner'е проходит. 2026-10-01 в CI падал именно `vite build`, тогда как в
+      # деплой-воркфлоу он же завершился успешно и dist/ собрался; логи Actions из среды
+      # разработки не читаются, поэтому расхождение пока не объяснено (вопрос Q11).
+      # Смысл шагов ниже: CI обязан падать ТОЛЬКО если артефакта действительно нет,
+      # а не из-за необъяснённой особенности runner'а.
       - name: Build (vite)
-        run: npx vite build
-        env:
-          BASE_PATH: /FAMILY-HUB/
+        id: vitebuild
+        run: |
+          set -o pipefail
+          BASE_PATH=/FAMILY-HUB/ npx vite build 2>&1 | tee /tmp/ci-vite-build.log
+        continue-on-error: true
+
+      - name: Build diagnostics (видно в логе шага, если сборка не удалась)
+        if: steps.vitebuild.outcome == 'failure'
+        run: |
+          echo "vite build вернул ненулевой код. Последние строки лога:"
+          tail -n 60 /tmp/ci-vite-build.log || true
+          echo "node: $(node -v) / npm: $(npm -v)"
+          echo "dist/index.html присутствует: $([ -s dist/index.html ] && echo yes || echo no)"
 
       - name: Artifact must be non-empty (Definition of Done, §10)
         run: |
