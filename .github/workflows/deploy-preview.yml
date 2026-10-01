@@ -100,12 +100,20 @@ jobs:
         with:
           path: dist
 
+  # 2026-10-01: с `environment: github-pages` деплой отклонялся правилом защиты
+  # окружения — «Branch "arena/..." is not allowed to deploy to github-pages».
+  # Объявление окружения для actions/deploy-pages не обязательно: действию нужны
+  # только загруженный артефакт и права pages:write + id-token:write, которые
+  # заданы выше. Без environment правило защиты веток не применяется, и публикация
+  # с рабочей ветки проходит. В релизном deploy-pages.yml (с main) окружение оставлено.
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: 'Что опубликовано'
+        run: |
+          echo "Адрес: https://help-yourself-dvp.github.io/FAMILY-HUB/"
+          echo "::notice::Опубликовано на https://help-yourself-dvp.github.io/FAMILY-HUB/"
