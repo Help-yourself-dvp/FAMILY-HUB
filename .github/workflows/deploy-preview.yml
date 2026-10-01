@@ -78,10 +78,23 @@ jobs:
           fi
           echo "dist:"; du -sh dist; find dist -type f | sort
 
+      # 2026-10-01 проверено: enablement не помог — GitHub отвечает
+      # `Resource not accessible by integration` на создание Pages-сайта. Право
+      # `pages: write` у воркфлоу есть, но включение Pages требует прав владельца
+      # репозитория. Поэтому включение делает владелец ОДИН раз:
+      # Settings → Pages → Source = «GitHub Actions» (INSTALL.md, Шаг 1).
+      # Шаг намеренно падает с внятным сообщением, а не с загадочным HttpError.
+      - name: Pages must be enabled by the repository owner (one time)
+        run: |
+          if ! curl -sfL -H "Authorization: Bearer ${{ github.token }}" \
+               -H "Accept: application/vnd.github+json" \
+               "https://api.github.com/repos/${{ github.repository }}/pages" >/dev/null; then
+            echo "::error::Pages в репозитории не включён. Один раз откройте Settings → Pages → Build and deployment → Source = 'GitHub Actions' (подробно: INSTALL.md, Шаг 1). После этого публикация пойдёт автоматически на каждый push."
+            exit 1
+          fi
+          echo "Pages включён — публикуем."
+
       - uses: actions/configure-pages@v5
-        with:
-          # Пробуем включить Pages сами (право pages: write у воркфлоу есть).
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
