@@ -36,8 +36,8 @@
 
   /* Типографика */
   --font:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-    'Noto Sans', sans-serif;
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+    sans-serif;
   --fs-xs: 12px;
   --fs-sm: 13px;
   --fs-md: 15px;

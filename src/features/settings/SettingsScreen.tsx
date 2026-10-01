@@ -43,26 +43,33 @@ export default function SettingsScreen({ ready }: { ready: boolean }) {
       <DiagnosticsSection />
 
       <section className="stack">
-        <h2 className="section-title">Журнал синхронизации</h2>
-        <div className="card stack" style={{ gap: 6, maxHeight: 240, overflowY: 'auto' }}>
-          {entries.length === 0 && <div className="small muted">Событий пока нет.</div>}
-          {entries
-            .slice()
-            .reverse()
-            .slice(0, 40)
-            .map((e, i) => (
-              <div key={i} className="row" style={{ gap: 8 }}>
-                <span className="tiny mono muted" style={{ flex: '0 0 auto' }}>
-                  {new Date(e.at).toLocaleTimeString('ru-RU')}
-                </span>
-                <span className="tiny mono truncate">{describeEvent(e.event)}</span>
-              </div>
-            ))}
-        </div>
-        <div className="tiny muted">
-          Журнал намеренно содержит только структурные события: ни содержимого покупок, ни токенов
-          (§6.19).
-        </div>
+        <details className="acc">
+          <summary className="acc-summary">
+            <span className="grow">Журнал синхронизации</span>
+            <Icon name="chevron" size={18} className="chev" />
+          </summary>
+          <div className="acc-body stack">
+            <div className="card stack" style={{ gap: 6, maxHeight: 240, overflowY: 'auto' }}>
+              {entries.length === 0 && <div className="small muted">Событий пока нет.</div>}
+              {entries
+                .slice()
+                .reverse()
+                .slice(0, 40)
+                .map((e, i) => (
+                  <div key={i} className="row" style={{ gap: 8 }}>
+                    <span className="tiny mono muted" style={{ flex: '0 0 auto' }}>
+                      {new Date(e.at).toLocaleTimeString('ru-RU')}
+                    </span>
+                    <span className="tiny mono truncate">{describeEvent(e.event)}</span>
+                  </div>
+                ))}
+            </div>
+            <div className="tiny muted">
+              Журнал намеренно содержит только структурные события: ни содержимого покупок, ни
+              токенов (§6.19).
+            </div>
+          </div>
+        </details>
       </section>
 
       <section className="card stack">

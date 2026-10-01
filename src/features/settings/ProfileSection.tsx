@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { db } from '../../data/db';
 import { loadSession, PROFILE_COLORS, updateProfile } from '../../data/session';
-import { Field } from '../../design/ui';
+import { Field, Icon } from '../../design/ui';
 
 export default function ProfileSection() {
   const [name, setName] = useState('');
@@ -24,43 +24,62 @@ export default function ProfileSection() {
 
   return (
     <section className="stack">
-      <h2 className="section-title">Кто вы</h2>
-      <div className="card stack">
-        <Field
-          label="Имя"
-          hint="В приложении нет логина: имя задаётся на этом устройстве и видно семье (§2.5)"
-        >
-          <input
-            className="input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => void save()}
-            placeholder="Например: Алексей"
-          />
-        </Field>
-        <div className="field">
-          <span className="field-label">Цвет</span>
-          <div className="chips" role="group" aria-label="Цвет профиля">
-            {PROFILE_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className="chip"
-                aria-pressed={color === c}
-                aria-label={`Цвет ${c}`}
-                style={{ background: color === c ? c : undefined, borderColor: c, minWidth: 44 }}
-                onClick={() => {
-                  setColor(c);
-                  void updateProfile({ color: c });
-                }}
-              >
-                {color === c ? '✓' : ''}
-              </button>
-            ))}
+      <details className="acc">
+        <summary className="acc-summary">
+          <span className="grow">Кто вы</span>
+          <Icon name="chevron" size={18} className="chev" />
+        </summary>
+        <div className="acc-body stack">
+          <div className="card stack">
+            <Field
+              label="Имя"
+              hint="В приложении нет логина: имя задаётся на этом устройстве и видно семье (§2.5)"
+            >
+              <input
+                className="input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={() => void save()}
+                placeholder="Например: Алексей"
+              />
+            </Field>
+            <div className="field">
+              <span className="field-label">Цвет</span>
+              <div className="chips" role="group" aria-label="Цвет профиля">
+                {PROFILE_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className="chip"
+                    aria-pressed={color === c}
+                    aria-label={`Цвет ${c}`}
+                    style={{
+                      background: color === c ? c : undefined,
+                      borderColor: c,
+                      minWidth: 44,
+                    }}
+                    onClick={() => {
+                      setColor(c);
+                      void updateProfile({ color: c });
+                    }}
+                  >
+                    {color === c ? '✓' : ''}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="tiny muted">
+              Цвет отмечает ваши действия в общих списках: точка у позиции и подпись у изменения.
+              Вот так вашу метку видит семья:
+            </div>
+            <div className="row" style={{ gap: 8 }}>
+              <span className="dot" style={{ color }} />
+              <span className="small truncate">«Молоко — куплено» · {name.trim() || 'вы'}</span>
+            </div>
+            <div className="tiny muted mono">ID устройства: {deviceId || '…'}</div>
           </div>
         </div>
-        <div className="tiny muted mono">ID устройства: {deviceId || '…'}</div>
-      </div>
+      </details>
     </section>
   );
 }

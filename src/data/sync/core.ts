@@ -21,6 +21,8 @@ export interface LocalStorePort {
     kind: EntityKind,
     merged: EntityMap<T>,
     syncedAt: string,
+    /** Снимок локальных данных НА МОМЕНТ чтения в этом цикле: защищает правки, сделанные пользователем во время цикла. */
+    localBefore?: EntityMap<T>,
   ): Promise<void>;
 }
 
@@ -120,7 +122,7 @@ async function attemptSync<T extends Syncable>(
     await remote.write<T>(kind, next, sha);
   }
 
-  await local.write<T>(kind, outcome.merged, now);
+  await local.write<T>(kind, outcome.merged, now, localMap);
   void nextBaseSnapshot; // base-снимок сохраняется внутри local.write
 
   return {

@@ -14,7 +14,7 @@ import { encodeSetupCode, parseSetupCode, SetupCodeError } from '../../data/remo
 import { syncNow } from '../../data/sync/engine';
 import { useSyncState } from '../../app/hooks';
 import { setRemoteConfig, clearRemoteConfig } from '../../app/bootstrap';
-import { Banner, Field, Sheet } from '../../design/ui';
+import { Icon, Banner, Field, Sheet } from '../../design/ui';
 import { describeError } from './helpers';
 
 interface Cfg {
@@ -192,213 +192,223 @@ export default function ConnectionSection() {
 
   return (
     <section className="stack">
-      <h2 className="section-title">Семейный репозиторий</h2>
-      <div className="card stack">
-        {sync.configured ? (
-          <Banner tone="ok">
-            <div className="grow">
-              <div className="strong">Синхронизация подключена</div>
-              <div className="small mono">
-                {owner}/{repo} · {branch}
-              </div>
-            </div>
-          </Banner>
-        ) : (
-          <Banner tone="warn">
-            <div className="grow">
-              <div className="strong">Локальный режим</div>
-              <div className="small">
-                Приложение полностью работает, но данные видны только на этом устройстве. Чтобы
-                делиться списками с семьёй, подключите приватный репозиторий.
-              </div>
-            </div>
-          </Banner>
-        )}
+      <details className="acc" open>
+        <summary className="acc-summary">
+          <span className="grow">Семейный репозиторий</span>
+          <Icon name="chevron" size={18} className="chev" />
+        </summary>
+        <div className="acc-body stack">
+          <div className="card stack">
+            {sync.configured ? (
+              <Banner tone="ok">
+                <div className="grow">
+                  <div className="strong">Синхронизация подключена</div>
+                  <div className="small mono">
+                    {owner}/{repo} · {branch}
+                  </div>
+                </div>
+              </Banner>
+            ) : (
+              <Banner tone="warn">
+                <div className="grow">
+                  <div className="strong">Локальный режим</div>
+                  <div className="small">
+                    Приложение полностью работает, но данные видны только на этом устройстве. Чтобы
+                    делиться списками с семьёй, подключите приватный репозиторий.
+                  </div>
+                </div>
+              </Banner>
+            )}
 
-        {desc?.kind === 'pat' && desc.expiresAt && desc.daysLeft !== null && desc.daysLeft < 45 && (
-          <Banner tone={desc.daysLeft < 0 ? 'err' : 'warn'}>
-            <div className="grow">
-              <div className="strong">
-                {desc.daysLeft < 0
-                  ? 'Ключ доступа истёк'
-                  : `Ключ доступа истекает через ${desc.daysLeft} дн.`}
-              </div>
-              <div className="small">
-                Срок взят из ответа GitHub, это не ошибка приложения. Перевыпустите ключ по
-                инструкции и вставьте новый — либо создайте бессрочный.
-              </div>
-            </div>
-            <button type="button" className="btn btn--sm" onClick={() => setGuideOpen(true)}>
-              Инструкция
-            </button>
-          </Banner>
-        )}
+            {desc?.kind === 'pat' &&
+              desc.expiresAt &&
+              desc.daysLeft !== null &&
+              desc.daysLeft < 45 && (
+                <Banner tone={desc.daysLeft < 0 ? 'err' : 'warn'}>
+                  <div className="grow">
+                    <div className="strong">
+                      {desc.daysLeft < 0
+                        ? 'Ключ доступа истёк'
+                        : `Ключ доступа истекает через ${desc.daysLeft} дн.`}
+                    </div>
+                    <div className="small">
+                      Срок взят из ответа GitHub, это не ошибка приложения. Перевыпустите ключ по
+                      инструкции и вставьте новый — либо создайте бессрочный.
+                    </div>
+                  </div>
+                  <button type="button" className="btn btn--sm" onClick={() => setGuideOpen(true)}>
+                    Инструкция
+                  </button>
+                </Banner>
+              )}
 
-        <Field label="Владелец (логин GitHub того, кто создал хранилище)">
-          <input
-            className="input mono"
-            value={owner}
-            onChange={(e) => setOwner(e.target.value)}
-            placeholder="например: ivanov-family"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-          />
-        </Field>
-        <Field label="Репозиторий с данными" hint="Приватный. Например: family-hub-data">
-          <input
-            className="input mono"
-            value={repo}
-            onChange={(e) => setRepo(e.target.value)}
-            placeholder="family-hub-data"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-          />
-        </Field>
-        <Field label="Ветка">
-          <input
-            className="input mono"
-            value={branch}
-            onChange={(e) => setBranch(e.target.value)}
-            placeholder="main"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-          />
-        </Field>
+            <Field label="Владелец (логин GitHub того, кто создал хранилище)">
+              <input
+                className="input mono"
+                value={owner}
+                onChange={(e) => setOwner(e.target.value)}
+                placeholder="например: ivanov-family"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </Field>
+            <Field label="Репозиторий с данными" hint="Приватный. Например: family-hub-data">
+              <input
+                className="input mono"
+                value={repo}
+                onChange={(e) => setRepo(e.target.value)}
+                placeholder="family-hub-data"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </Field>
+            <Field label="Ветка">
+              <input
+                className="input mono"
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                placeholder="main"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </Field>
 
-        <Field
-          label={
-            savedToken
-              ? 'Ключ доступа (сохранён — введите, чтобы заменить)'
-              : 'Ключ доступа (fine-grained PAT)'
-          }
-          hint="Хранится только в этом браузере. В код приложения не попадает и в журнал не пишется."
-        >
-          <input
-            className="input mono"
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder={savedToken ? '••••••••••••••••' : 'github_pat_…'}
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            autoComplete="off"
-          />
-        </Field>
+            <Field
+              label={
+                savedToken
+                  ? 'Ключ доступа (сохранён — введите, чтобы заменить)'
+                  : 'Ключ доступа (fine-grained PAT)'
+              }
+              hint="Хранится только в этом браузере. В код приложения не попадает и в журнал не пишется."
+            >
+              <input
+                className="input mono"
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder={savedToken ? '••••••••••••••••' : 'github_pat_…'}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </Field>
 
-        {classicToken && (
-          <Banner tone="warn">
-            <div className="grow small">
-              Это классический токен (ghp_…). Он даёт доступ <b>ко всем</b> вашим репозиториям.
-              Лучше создать fine-grained (github_pat_…) с правом только на один репозиторий.
-            </div>
-          </Banner>
-        )}
+            {classicToken && (
+              <Banner tone="warn">
+                <div className="grow small">
+                  Это классический токен (ghp_…). Он даёт доступ <b>ко всем</b> вашим репозиториям.
+                  Лучше создать fine-grained (github_pat_…) с правом только на один репозиторий.
+                </div>
+              </Banner>
+            )}
 
-        {result && <Banner tone={result.tone}>{result.text}</Banner>}
+            {result && <Banner tone={result.tone}>{result.text}</Banner>}
 
-        <div className="row" style={{ gap: 'var(--sp-2)' }}>
-          <button
-            type="button"
-            className="btn btn--primary grow"
-            disabled={busy}
-            onClick={() => void connect()}
-          >
-            {busy ? 'Проверяем…' : 'Проверить и подключить'}
-          </button>
-          <button type="button" className="btn btn--ghost" onClick={() => setGuideOpen(true)}>
-            Инструкция
-          </button>
-        </div>
-
-        {savedToken && (
-          <button
-            type="button"
-            className="btn btn--danger btn--block btn--sm"
-            onClick={() => void disconnect()}
-          >
-            Отключить синхронизацию
-          </button>
-        )}
-
-        <div className="tiny muted">{expiryLine(desc, savedToken)}</div>
-      </div>
-
-      {/* ---------------- Второй телефон и остальные члены семьи ---------------- */}
-      <div className="card stack">
-        <div className="strong">Второй телефон и другие члены семьи</div>
-        <p className="small" style={{ margin: 0, lineHeight: 1.55, color: 'var(--text-2)' }}>
-          Аккаунт GitHub нужен <b>только тому, кто создал хранилище</b>. Остальным — не нужен: они
-          подключаются кодом с этого телефона. Код содержит семейный ключ, поэтому передавайте его
-          только внутри семьи (например, себе в мессенджер).
-        </p>
-
-        {codeOpen && code ? (
-          <div className="stack" style={{ gap: 'var(--sp-2)' }}>
-            <div className="mono small" style={{ wordBreak: 'break-all', lineHeight: 1.5 }}>
-              {code}
-            </div>
             <div className="row" style={{ gap: 'var(--sp-2)' }}>
               <button
                 type="button"
-                className="btn btn--sm btn--primary"
-                onClick={() => void copyCode()}
+                className="btn btn--primary grow"
+                disabled={busy}
+                onClick={() => void connect()}
               >
-                {codeCopied ? 'Скопировано' : 'Скопировать код'}
+                {busy ? 'Проверяем…' : 'Проверить и подключить'}
               </button>
+              <button type="button" className="btn btn--ghost" onClick={() => setGuideOpen(true)}>
+                Инструкция
+              </button>
+            </div>
+
+            {savedToken && (
               <button
                 type="button"
-                className="btn btn--sm btn--ghost"
-                onClick={() => setCodeOpen(false)}
+                className="btn btn--danger btn--block btn--sm"
+                onClick={() => void disconnect()}
               >
-                Скрыть
+                Отключить синхронизацию
               </button>
-            </div>
-            <div className="tiny muted">
-              На втором телефоне: Настройки → «Семейный репозиторий» → вставьте код в поле ниже →
-              «Подключить по коду». Ни аккаунта, ни создания ключа там не потребуется.
-            </div>
+            )}
+
+            <div className="tiny muted">{expiryLine(desc, savedToken)}</div>
           </div>
-        ) : (
-          <button
-            type="button"
-            className="btn btn--block"
-            disabled={busy}
-            onClick={() => void makeCode()}
-          >
-            Получить код для второго устройства
-          </button>
-        )}
 
-        <Field
-          label="Подключить это устройство по коду"
-          hint="Вставьте код, полученный на первом телефоне семьи."
-        >
-          <textarea
-            className="input mono"
-            rows={3}
-            value={codeInput}
-            onChange={(e) => setCodeInput(e.target.value)}
-            placeholder="FHSETUP1.…"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-          />
-        </Field>
-        <button
-          type="button"
-          className="btn btn--primary btn--block"
-          disabled={busy}
-          onClick={() => void connectByCode()}
-        >
-          {busy ? 'Подключаем…' : 'Подключить по коду'}
-        </button>
-      </div>
+          {/* ---------------- Второй телефон и остальные члены семьи ---------------- */}
+          <div className="card stack">
+            <div className="strong">Второй телефон и другие члены семьи</div>
+            <p className="small" style={{ margin: 0, lineHeight: 1.55, color: 'var(--text-2)' }}>
+              Аккаунт GitHub нужен <b>только тому, кто создал хранилище</b>. Остальным — не нужен:
+              они подключаются кодом с этого телефона. Код содержит семейный ключ, поэтому
+              передавайте его только внутри семьи (например, себе в мессенджер).
+            </p>
 
-      <PatGuideSheet open={guideOpen} onClose={() => setGuideOpen(false)} />
+            {codeOpen && code ? (
+              <div className="stack" style={{ gap: 'var(--sp-2)' }}>
+                <div className="mono small" style={{ wordBreak: 'break-all', lineHeight: 1.5 }}>
+                  {code}
+                </div>
+                <div className="row" style={{ gap: 'var(--sp-2)' }}>
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--primary"
+                    onClick={() => void copyCode()}
+                  >
+                    {codeCopied ? 'Скопировано' : 'Скопировать код'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--ghost"
+                    onClick={() => setCodeOpen(false)}
+                  >
+                    Скрыть
+                  </button>
+                </div>
+                <div className="tiny muted">
+                  На втором телефоне: Настройки → «Семейный репозиторий» → вставьте код в поле ниже
+                  → «Подключить по коду». Ни аккаунта, ни создания ключа там не потребуется.
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="btn btn--block"
+                disabled={busy}
+                onClick={() => void makeCode()}
+              >
+                Получить код для второго устройства
+              </button>
+            )}
+
+            <Field
+              label="Подключить это устройство по коду"
+              hint="Вставьте код, полученный на первом телефоне семьи."
+            >
+              <textarea
+                className="input mono"
+                rows={3}
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value)}
+                placeholder="FHSETUP1.…"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </Field>
+            <button
+              type="button"
+              className="btn btn--primary btn--block"
+              disabled={busy}
+              onClick={() => void connectByCode()}
+            >
+              {busy ? 'Подключаем…' : 'Подключить по коду'}
+            </button>
+          </div>
+
+          <PatGuideSheet open={guideOpen} onClose={() => setGuideOpen(false)} />
+        </div>
+      </details>
     </section>
   );
 }

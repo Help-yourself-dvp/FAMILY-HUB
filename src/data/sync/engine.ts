@@ -14,7 +14,13 @@
  */
 import { baseSnapshot, db, httpCacheRowKey, localEntities, writeMerged } from './localStore';
 import { GitHubRemoteStore } from './remoteStore';
-import { ConflictError, syncKind, type LocalStorePort, type RemoteStorePort } from './core';
+import {
+  ConflictError,
+  syncKind,
+  type LocalStorePort,
+  type RemoteStorePort,
+  type SyncKindsResult,
+} from './core';
 export type { LocalStorePort, RemoteStorePort } from './core';
 import { setSyncState } from './state';
 import { log } from '../../shared/log';
@@ -28,6 +34,8 @@ export const ACTIVE_SYNC_KINDS: EntityKind[] = ['shopping', 'members'];
 export const DEBOUNCE_MS = 2000;
 /** Периодическая синхронизация, пока приложение на экране. */
 export const PERIODIC_MS = 60_000;
+
+type Outcome = { kind: EntityKind; ok: SyncKindsResult | null; err: unknown };
 
 let localPort: LocalStorePort | null = null;
 let remotePort: RemoteStorePort | null = null;
@@ -53,8 +61,12 @@ export function createPorts(
     local: {
       read: <T extends Syncable>(kind: EntityKind) => localEntities<T>(kind),
       readBase: (kind: EntityKind) => baseSnapshot(kind),
-      write: <T extends Syncable>(kind: EntityKind, merged: Record<string, T>, at: string) =>
-        writeMerged<T>(kind, merged, at),
+      write: <T extends Syncable>(
+        kind: EntityKind,
+        merged: Record<string, T>,
+        at: string,
+        localBefore?: Record<string, T>,
+      ) => writeMerged<T>(kind, merged, at, localBefore),
     },
     remote: new GitHubRemoteStore(cfg, getToken),
   };
@@ -101,23 +113,39 @@ export async function syncNow(_reason: string): Promise<void> {
   let conflicts = 0;
   let failure: { code: string; message: string } | null = null;
 
-  for (const kind of kinds) {
-    try {
-      const r = await syncKind<Syncable>(kind, localPort, remotePort, {
-        nowIso: () => new Date().toISOString(),
-        onRetry: (k, attempt) =>
-          log.emit({ type: 'sync:retry', kind: k, attempt, reason: 'conflict' }),
-        onConflict: (k, count) => log.emit({ type: 'sync:conflict', kind: k, count }),
-      });
-      pushed += r.pushed;
-      pulled += r.pulled;
-      conflicts += r.conflicts;
-    } catch (e) {
+  // Виды независимы (отдельные файлы в репозитории) - идём параллельно: меньше
+  // худшее время цикла и уже окно, в котором пользователь ждёт.
+  const outcomes = await Promise.all(
+    kinds.map(async (kind): Promise<Outcome> => {
+      try {
+        const r = await syncKind<Syncable>(
+          kind,
+          localPort as LocalStorePort,
+          remotePort as RemoteStorePort,
+          {
+            nowIso: () => new Date().toISOString(),
+            onRetry: (k, attempt) =>
+              log.emit({ type: 'sync:retry', kind: k, attempt, reason: 'conflict' }),
+            onConflict: (k, count) => log.emit({ type: 'sync:conflict', kind: k, count }),
+          },
+        );
+        return { kind, ok: r, err: null };
+      } catch (e) {
+        return { kind, ok: null, err: e };
+      }
+    }),
+  );
+  for (const o of outcomes) {
+    if (o.ok) {
+      pushed += o.ok.pushed;
+      pulled += o.ok.pulled;
+      conflicts += o.ok.conflicts;
+    } else if (!failure) {
+      const e = o.err;
       const code = e instanceof ConflictError ? 'conflict' : errorCode(e);
       const message = e instanceof Error ? e.message : String(e);
       failure = { code, message };
-      log.emit({ type: 'sync:error', kind, code, message });
-      break;
+      log.emit({ type: 'sync:error', kind: o.kind, code, message });
     }
   }
 

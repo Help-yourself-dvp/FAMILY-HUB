@@ -8,9 +8,17 @@
  * Никаких секретов в этом модуле нет: токен приходит из AuthStrategy (§2.5).
  */
 import { auth } from './authStrategy';
+import { log } from '../../shared/log';
 
 export const GITHUB_API = 'https://api.github.com';
 const API_VERSION = '2022-11-28';
+/**
+ * Жёсткий таймаут запроса. Без него (0.1.4) подвисший TCP-канал к api.github.com
+ * держал фазу «Синхронизация…» минутами, а случайный краткий обрыв сети оставлял
+ * вечную надпись «Нет сети» при живой сети: цикл просто не завершался.
+ * 20 секунд с запасом превышают нормальный ответ GitHub (единицы секунд).
+ */
+export const REQUEST_TIMEOUT_MS = 20_000;
 
 export class GitHubError extends Error {
   constructor(
@@ -34,6 +42,7 @@ export type GitHubErrorCode =
   | 'rate-limit' // 403 + x-ratelimit-remaining: 0
   | 'secondary-limit' // 403/429 + retry-after: abuse detection
   | 'network'
+  | 'timeout'
   | 'unknown';
 
 export interface GitHubConfig {
@@ -97,10 +106,35 @@ export class GitHubClient {
     if (init.body) headers.set('Content-Type', 'application/json');
 
     let res: Response;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+    const startedAt = Date.now();
+    const path = new URL(url).pathname;
+    const method = init.method ?? 'GET';
     try {
-      res = await fetch(url, { ...init, headers });
+      res = await fetch(url, { ...init, headers, signal: ctrl.signal });
+      log.emit({ type: 'http', method, path, status: res.status, ms: Date.now() - startedAt });
     } catch (e) {
-      throw new GitHubError(0, e instanceof Error ? e.message : 'network failure', 'network');
+      const aborted = ctrl.signal.aborted;
+      log.emit({
+        type: 'http',
+        method,
+        path,
+        status: 0,
+        ms: Date.now() - startedAt,
+        code: aborted ? 'timeout' : 'network',
+      });
+      throw new GitHubError(
+        0,
+        aborted
+          ? `GitHub не ответил за ${Math.round(REQUEST_TIMEOUT_MS / 1000)} с`
+          : e instanceof Error
+            ? e.message
+            : 'network failure',
+        aborted ? 'timeout' : 'network',
+      );
+    } finally {
+      clearTimeout(timer);
     }
 
     // Реальный срок действия ключа (0.1.4): GitHub отдаёт его в заголовке каждого

@@ -25,6 +25,7 @@ export default function ShoppingScreen({ ready }: { ready: boolean }) {
   }, []);
 
   const items = useLiveQuery(() => db.shopping.toArray(), [], undefined);
+  const members = useLiveQuery(() => db.members.toArray(), [], undefined);
   const sync = useSyncState();
 
   const groups = useMemo(() => {
@@ -86,7 +87,11 @@ export default function ShoppingScreen({ ready }: { ready: boolean }) {
             </div>
             <div className="stack">
               {list.map((item) => (
-                <ShoppingRow key={item.id} item={item} />
+                <ShoppingRow
+                  key={item.id}
+                  item={item}
+                  author={members?.find((m) => m.id === item.updatedBy)}
+                />
               ))}
             </div>
           </section>
@@ -120,7 +125,11 @@ export default function ShoppingScreen({ ready }: { ready: boolean }) {
           {showDone && (
             <div className="stack">
               {groups.done.map((item) => (
-                <ShoppingRow key={item.id} item={item} />
+                <ShoppingRow
+                  key={item.id}
+                  item={item}
+                  author={members?.find((m) => m.id === item.updatedBy)}
+                />
               ))}
             </div>
           )}
@@ -152,7 +161,13 @@ function Header({ count }: { count: number }) {
   );
 }
 
-function ShoppingRow({ item }: { item: ShoppingItem }) {
+function ShoppingRow({
+  item,
+  author,
+}: {
+  item: ShoppingItem;
+  author?: { name: string; color: string } | null;
+}) {
   const meta = [
     item.qty !== null ? `${formatQty(item.qty)}${item.unit ? ` ${item.unit}` : ''}` : null,
     item.category,
@@ -175,7 +190,16 @@ function ShoppingRow({ item }: { item: ShoppingItem }) {
         onClick={() => void shoppingRepo.toggleDone(item.id)}
       />
       <div className="grow">
-        <div className="item-title truncate">{item.title}</div>
+        <div className="row" style={{ gap: 6, minWidth: 0 }}>
+          {author && (
+            <span
+              className="dot"
+              style={{ color: author.color, flex: '0 0 auto' }}
+              title={`Последнее изменение: ${author.name}`}
+            />
+          )}
+          <div className="item-title truncate">{item.title}</div>
+        </div>
         {meta && <div className="item-meta truncate">{meta}</div>}
       </div>
       <button

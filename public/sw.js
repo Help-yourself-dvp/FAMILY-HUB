@@ -17,6 +17,8 @@
 const SHELL_URL = new URL('app-shell.json', self.registration.scope).href;
 const SHELL_CACHE_PREFIX = 'fh-shell-';
 const RUNTIME_CACHE = 'fh-runtime-v1';
+// Предел ожидания сети при навигации: офлайн-старт важнее свежести (§6).
+const NAV_TIMEOUT_MS = 4000;
 
 // api.github.com и любые чужие origin — никогда не кэшируем.
 function isSameOrigin(url) {
@@ -47,7 +49,8 @@ self.addEventListener('install', (event) => {
         manifest.precache.map((p) => cache.add(new URL(p, self.registration.scope).href)),
       );
       const failed = results.filter((r) => r.status === 'rejected').length;
-      if (failed > 0) console.warn(`[sw] не закэшировано файлов: ${failed} из ${manifest.precache.length}`);
+      if (failed > 0)
+        console.warn(`[sw] не закэшировано файлов: ${failed} из ${manifest.precache.length}`);
 
       await caches.open(RUNTIME_CACHE);
       self.skipWaitingOnDemand = cacheName;
@@ -86,17 +89,29 @@ self.addEventListener('fetch', (event) => {
   if (!isSameOrigin(url)) return; // в т.ч. api.github.com — только сеть
 
   if (req.mode === 'navigate') {
+    // Network-first с ПРЕДЕЛОМ ожидания (приёмка 0.1.5): свайп-обновление при
+    // подвисшем github.io раньше держало страницу мёртвой ~30 секунд. Теперь через
+    // 4 секунды открываемся из кэша, а сеть догонит в фоне или в следующий запуск.
     event.respondWith(
       (async () => {
-        try {
-          const fresh = await fetch(req);
-          const cache = await caches.open(RUNTIME_CACHE);
-          cache.put(req, fresh.clone()).catch(() => {});
-          return fresh;
-        } catch {
-          const cached = (await caches.match(req)) || (await caches.match(new URL('index.html', self.registration.scope).href));
-          return cached || Response.error();
+        const cache = await caches.open(RUNTIME_CACHE);
+        const cached = await cache.match(req);
+        const network = fetch(req)
+          .then((res) => {
+            cache.put(req, res.clone()).catch(() => {});
+            return res;
+          })
+          .catch(() => null);
+        const fresh = await Promise.race([
+          network,
+          new Promise((resolve) => setTimeout(() => resolve(null), NAV_TIMEOUT_MS)),
+        ]);
+        if (fresh) return fresh;
+        if (cached) {
+          void network; // догоняющее обновление кэша
+          return cached;
         }
+        return (await network) || Response.error();
       })(),
     );
     return;

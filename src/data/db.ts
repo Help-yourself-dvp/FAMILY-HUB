@@ -170,28 +170,61 @@ export async function baseSnapshot(kind: EntityKind): Promise<Record<string, num
   return out;
 }
 
+/**
+ * Запись результата слияния. БЕЗ `table.clear()` и БЕЗ потери локальных правок:
+ *
+ * Дефект 0.1.4 (приёмка владельца): прежняя реализация стирала таблицу и клала
+ * снимок, прочитанный ДО начала цикла синхронизации. Всё, что пользователь нажал
+ * во время долгого цикла (отметил купленным, удалил), молча откатывалось —
+ * «кнопка не нажимается», «информация пропадает». Теперь:
+ *  - строки, изменённые локально ПОСЛЕ снимка localBefore, сохраняются (они новее
+ *    и уедут в следующем цикле: base-снимок остаётся по синхронизированному rev);
+ *  - строки, удалённые локально во время цикла, не воскрешаются;
+ *  - точечные put/delete вместо clear(): даже авария транзакции не оставляет
+ *    пустую таблицу.
+ *
+ * @param localBefore снимок локальных данных на момент чтения в этом цикле.
+ */
 export async function writeMerged<T extends Syncable>(
   kind: EntityKind,
   merged: Record<string, T>,
   syncedAt: string,
+  localBefore?: Record<string, T>,
 ): Promise<void> {
   const table = tableFor<T>(kind);
   await db.transaction('rw', table, db.syncMeta, async () => {
-    await table.clear();
-    const rows = Object.values(merged);
-    if (rows.length) await table.bulkPut(rows);
-    await db.syncMeta.where('kind').equals(kind).delete();
-    if (rows.length) {
-      await db.syncMeta.bulkPut(
-        rows.map((e) => ({
-          key: `${kind}:${e.id}`,
-          kind,
-          id: e.id,
-          rev: e.rev,
-          syncedAt,
-        })),
-      );
+    const localNow = await table.toArray();
+    const final: Record<string, T> = { ...merged };
+    const localNowIds = new Set<string>();
+    for (const row of localNow) {
+      localNowIds.add(row.id);
+      const before = localBefore?.[row.id];
+      const touchedDuringSync =
+        !before || before.rev !== row.rev || before.updatedAt !== row.updatedAt;
+      if (touchedDuringSync) final[row.id] = row;
     }
+    if (localBefore) {
+      for (const id of Object.keys(localBefore)) {
+        // Локальное (физическое) удаление во время цикла — не воскрешать.
+        if (!localNowIds.has(id)) delete final[id];
+      }
+    }
+
+    const rows = Object.values(final);
+    if (rows.length) await table.bulkPut(rows);
+    for (const row of localNow) if (!(row.id in final)) await table.delete(row.id);
+
+    // base-снимок = ТОЛЬКО фактически синхронизированные rev (из merged).
+    // Локально более новые строки остаются с rev > base -> попадут в очередь.
+    await db.syncMeta.where('kind').equals(kind).delete();
+    const baseRows = Object.values(merged).map((e) => ({
+      key: `${kind}:${e.id}`,
+      kind,
+      id: e.id,
+      rev: e.rev,
+      syncedAt,
+    }));
+    if (baseRows.length) await db.syncMeta.bulkPut(baseRows);
   });
 }
 

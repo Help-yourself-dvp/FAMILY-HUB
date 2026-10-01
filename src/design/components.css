@@ -587,3 +587,38 @@ code,
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: var(--fs-xs);
 }
+
+/* Сворачиваемые разделы настроек (приёмка 0.1.5: владелец не хочет листать
+   бесконечную простыню из диагностики и журналов). */
+.acc {
+  border-top: 1px solid var(--stroke);
+  padding-top: var(--sp-2);
+}
+.acc:first-of-type {
+  border-top: none;
+}
+.acc-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) 2px;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semi);
+  cursor: pointer;
+  list-style: none;
+  color: var(--text);
+}
+.acc-summary::-webkit-details-marker {
+  display: none;
+}
+.acc-summary .chev {
+  color: var(--text-3);
+  transition: transform var(--dur) var(--ease);
+  flex: 0 0 auto;
+}
+.acc[open] .chev {
+  transform: rotate(90deg);
+}
+.acc-body {
+  padding-bottom: var(--sp-4);
+}

@@ -5,7 +5,7 @@ import { db } from '../../data/db';
 import { wipeLocalData } from '../../data/remote/authStrategy';
 import { restartSync } from '../../app/bootstrap';
 import { SCHEMA_VERSION } from '../../domain/types';
-import { Banner } from '../../design/ui';
+import { Banner, Icon } from '../../design/ui';
 
 export default function DataSection() {
   const [msg, setMsg] = useState<string | null>(null);
@@ -71,41 +71,48 @@ export default function DataSection() {
 
   return (
     <section className="stack">
-      <h2 className="section-title">Данные</h2>
-      <div className="card stack">
-        <div className="tiny muted mono">
-          {counts
-            ? `покупок: ${counts.shopping} · дел: ${counts.tasks} · сроков: ${counts.deadlines} · профилей: ${counts.members} · событий: ${counts.activity}`
-            : 'считаем…'}
+      <details className="acc">
+        <summary className="acc-summary">
+          <span className="grow">Данные</span>
+          <Icon name="chevron" size={18} className="chev" />
+        </summary>
+        <div className="acc-body stack">
+          <div className="card stack">
+            <div className="tiny muted mono">
+              {counts
+                ? `покупок: ${counts.shopping} · дел: ${counts.tasks} · сроков: ${counts.deadlines} · профилей: ${counts.members} · событий: ${counts.activity}`
+                : 'считаем…'}
+            </div>
+            {msg && <Banner tone="ok">{msg}</Banner>}
+            <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+              <button type="button" className="btn grow" onClick={() => void exportBackup()}>
+                Экспорт резервной копии
+              </button>
+              <button type="button" className="btn btn--ghost" onClick={() => void clearDemo()}>
+                Удалить демо-данные
+              </button>
+            </div>
+            <button
+              type="button"
+              className="btn btn--danger btn--block btn--sm"
+              onClick={() => void wipe()}
+            >
+              Удалить все локальные данные
+            </button>
+            <div className="tiny muted">
+              Импорт резервной копии с валидацией схемы — ЭТАП 10 (§6.14). Экспорт работает уже
+              сейчас: это независимый канал восстановления, если GitHub станет недоступен.
+            </div>
+            <button
+              type="button"
+              className="btn btn--ghost btn--block btn--sm"
+              onClick={() => void restartSync()}
+            >
+              Переподключить синхронизацию
+            </button>
+          </div>
         </div>
-        {msg && <Banner tone="ok">{msg}</Banner>}
-        <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-          <button type="button" className="btn grow" onClick={() => void exportBackup()}>
-            Экспорт резервной копии
-          </button>
-          <button type="button" className="btn btn--ghost" onClick={() => void clearDemo()}>
-            Удалить демо-данные
-          </button>
-        </div>
-        <button
-          type="button"
-          className="btn btn--danger btn--block btn--sm"
-          onClick={() => void wipe()}
-        >
-          Удалить все локальные данные
-        </button>
-        <div className="tiny muted">
-          Импорт резервной копии с валидацией схемы — ЭТАП 10 (§6.14). Экспорт работает уже сейчас:
-          это независимый канал восстановления, если GitHub станет недоступен.
-        </div>
-        <button
-          type="button"
-          className="btn btn--ghost btn--block btn--sm"
-          onClick={() => void restartSync()}
-        >
-          Переподключить синхронизацию
-        </button>
-      </div>
+      </details>
     </section>
   );
 }

@@ -16,7 +16,7 @@ import {
   type NotificationChannel,
   type SupportReport,
 } from '../../notifications/channels';
-import { Switch } from '../../design/ui';
+import { Icon, Switch } from '../../design/ui';
 
 export default function NotificationsSection() {
   const [support, setSupport] = useState<Record<string, SupportReport>>({});
@@ -57,30 +57,36 @@ export default function NotificationsSection() {
 
   return (
     <section className="stack">
-      <h2 className="section-title">Уведомления</h2>
+      <details className="acc">
+        <summary className="acc-summary">
+          <span className="grow">Уведомления</span>
+          <Icon name="chevron" size={18} className="chev" />
+        </summary>
+        <div className="acc-body stack">
+          <p className="small muted" style={{ margin: 0, lineHeight: 1.55 }}>
+            Три независимых канала. Каждый включается своим переключателем; общий смысл — чем выше
+            уровень, тем громче напоминание и тем больше условий для его работы.
+          </p>
 
-      <p className="small muted" style={{ margin: 0, lineHeight: 1.55 }}>
-        Три независимых канала. Каждый включается своим переключателем; общий смысл — чем выше
-        уровень, тем громче напоминание и тем больше условий для его работы.
-      </p>
-
-      {!ready ? (
-        <div className="card">
-          <div className="tiny muted">Проверяем, что умеет это устройство…</div>
+          {!ready ? (
+            <div className="card">
+              <div className="tiny muted">Проверяем, что умеет это устройство…</div>
+            </div>
+          ) : (
+            <div className="stack" style={{ gap: 'var(--sp-4)' }}>
+              {notificationChannels.all().map((c) => (
+                <ChannelCard
+                  key={c.id}
+                  channel={c}
+                  support={support[c.id]}
+                  enabled={Boolean(enabled[c.id])}
+                  onToggle={(v) => void toggle(c.id, v)}
+                />
+              ))}
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="stack" style={{ gap: 'var(--sp-4)' }}>
-          {notificationChannels.all().map((c) => (
-            <ChannelCard
-              key={c.id}
-              channel={c}
-              support={support[c.id]}
-              enabled={Boolean(enabled[c.id])}
-              onToggle={(v) => void toggle(c.id, v)}
-            />
-          ))}
-        </div>
-      )}
+      </details>
     </section>
   );
 }
@@ -101,11 +107,13 @@ function ChannelCard({
 
   return (
     <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
-      <div className="row--between row" style={{ gap: 'var(--sp-3)' }}>
-        <div className="strong" style={{ fontSize: 'var(--fs-md)' }}>
+      <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'nowrap' }}>
+        <span className="badge" style={{ flex: '0 0 auto' }}>
+          уровень {c.level}
+        </span>
+        <div className="strong grow truncate" style={{ fontSize: 'var(--fs-md)' }}>
           {c.label}
         </div>
-        <span className="badge">уровень {c.level}</span>
       </div>
 
       <p className="small" style={{ margin: 0, lineHeight: 1.55, color: 'var(--text-2)' }}>

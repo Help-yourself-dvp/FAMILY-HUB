@@ -12,6 +12,7 @@ export type SyncLogEvent =
   | { type: 'sync:conflict'; kind: string; count: number }
   | { type: 'sync:retry'; kind: string; attempt: number; reason: 'conflict' | 'network' }
   | { type: 'sync:error'; kind: string; code: string; message: string }
+  | { type: 'http'; method: string; path: string; status: number; ms: number; code?: string }
   | { type: 'auth:changed'; present: boolean }
   | { type: 'app:installed' }
   | { type: 'app:update-available' };
