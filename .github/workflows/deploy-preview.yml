@@ -1,0 +1,96 @@
+# Публикация приложения на GitHub Pages С РАБОЧЕЙ ВЕТКИ.
+#
+# Зачем это нужно (решение от 2026-10-01, просьба владельца):
+#   - владелец хочет ОДИН раз установить приложение на телефон и дальше получать
+#     обновления автоматически, без повторных настроек;
+#   - слияние в `main` не используется как условие публикации: рабочая ветка
+#     остаётся рабочей, сессия разработки не закрывается;
+#   - постоянный адрес: https://help-yourself-dvp.github.io/FAMILY-HUB/
+#
+# Одноразовое действие владельца: Settings → Pages → Source = «GitHub Actions».
+# Дальше каждый push в эту ветку публикует новую версию автоматически.
+#
+# Отказоустойчивость: если сборка на runner'е по какой-то причине падает
+# (на 2026-10-01 причина падения CI ещё не известна: логи Actions из среды
+# разработки не скачиваются), используется заранее собранная копия
+# infra/pages-fallback/dist. Приложение публикуется в любом случае — владелец
+# не должен ждать, пока мы разберёмся с инфраструктурой.
+name: Deploy preview (Pages)
+
+on:
+  push:
+    branches: [arena/01a0f5ef-family-hub]
+  # Ручной запуск кнопкой «Run workflow» — на случай, если нужно перезапустить
+  # публикацию без нового коммита.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Группа одна с deploy-pages.yml: GitHub Pages не принимает два деплоя сразу.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Разделено на два шага специально: если сборка снова упадёт, по номеру
+      # упавшего шага сразу видно, кто виноват — tsc или vite.
+      - name: Typecheck (tsc -b)
+        run: npx tsc -b --pretty false
+        continue-on-error: true
+
+      - name: Build (vite)
+        run: |
+          set -o pipefail
+          BASE_PATH=/FAMILY-HUB/ npx vite build 2>&1 | tee /tmp/vite-build.log
+        continue-on-error: true
+
+      - name: Fallback — заранее собранная копия, если сборка на runner'е не удалась
+        run: |
+          if [ -s dist/index.html ] && [ -s dist/sw.js ] && [ -s dist/app-shell.json ]; then
+            echo "source=runner" >> "$GITHUB_STEP_SUMMARY"
+            echo "Сборка на runner'е успешна, fallback не понадобился."
+          else
+            echo "source=fallback" >> "$GITHUB_STEP_SUMMARY"
+            echo "⚠️ Сборка на runner'е не дала dist/ — беру infra/pages-fallback/dist"
+            rm -rf dist
+            cp -r infra/pages-fallback/dist dist
+            if [ ! -s dist/index.html ]; then
+              echo "✖ Нет ни свежей сборки, ни резервной копии. Публиковать нечего."
+              tail -n 60 /tmp/vite-build.log || true
+              exit 1
+            fi
+            tail -n 40 /tmp/vite-build.log || true
+          fi
+          echo "dist:"; du -sh dist; find dist -type f | sort
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

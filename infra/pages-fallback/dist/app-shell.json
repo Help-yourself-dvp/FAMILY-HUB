@@ -1,0 +1,17 @@
+{
+  "buildId": "0.1.1-mup9syv1",
+  "version": "0.1.1",
+  "generatedAt": "2026-10-01T08:26:42.685Z",
+  "precache": [
+    "assets/index-74N3kGZf.js",
+    "assets/index-NHvqo6oO.css",
+    "icons/apple-touch-icon.png",
+    "icons/favicon-32.png",
+    "icons/icon-192.png",
+    "icons/icon-512.png",
+    "icons/maskable-512.png",
+    "icons/monochrome-512.png",
+    "index.html",
+    "manifest.webmanifest"
+  ]
+}

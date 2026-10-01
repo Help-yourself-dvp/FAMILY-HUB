@@ -40,8 +40,14 @@ jobs:
       - name: Test
         run: npm run test
 
-      - name: Build
-        run: npm run build
+      # Разделено на два шага: на 2026-10-01 сборка падала на runner'е, а логи
+      # Actions из среды разработки не читаются. По номеру упавшего шага видно,
+      # кто именно виноват — tsc или vite (локально оба проходили чисто).
+      - name: Build (tsc -b)
+        run: npx tsc -b --pretty false
+
+      - name: Build (vite)
+        run: npx vite build
         env:
           BASE_PATH: /FAMILY-HUB/
 
