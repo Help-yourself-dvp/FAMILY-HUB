@@ -177,6 +177,7 @@ function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: De
   const [kind, setKind] = useState<DeadlineKind>(editing?.deadlineKind ?? 'document');
   const [date, setDate] = useState(editing?.dueDate ?? '');
   const [steps, setSteps] = useState<number[]>(editing?.remindersDays ?? [30, 7, 0]);
+  const [customStep, setCustomStep] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -260,24 +261,59 @@ function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: De
         </Field>
         <div className="field">
           <span className="field-label">Напоминать</span>
+          {/* Своя ступень (просьба владельца 2026-10-01): паспорт — за полгода,
+              загранпаспорт — хоть за год (365). */}
+          <div className="row" style={{ gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+            <input
+              className="input grow"
+              type="number"
+              min={1}
+              max={3650}
+              inputMode="numeric"
+              value={customStep}
+              placeholder="Своя ступень: дней до срока (например, 180 или 365)"
+              onChange={(e) => setCustomStep(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn btn--sm"
+              style={{ flex: '0 0 auto' }}
+              onClick={() => {
+                const n = Number(customStep);
+                if (!Number.isFinite(n) || n < 1 || n > 3650) return;
+                const whole = Math.round(n);
+                setSteps((p) => (p.includes(whole) ? p : [...p, whole].sort((a, b) => b - a)));
+                setCustomStep('');
+              }}
+            >
+              <Icon name="plus" size={16} /> Добавить
+            </button>
+          </div>
           <div className="chips" role="group" aria-label="Ступени напоминаний">
-            {REMINDER_STEPS.map((s) => (
-              <button
-                key={s.days}
-                type="button"
-                className="chip"
-                aria-pressed={steps.includes(s.days)}
-                onClick={() =>
-                  setSteps((p) =>
-                    p.includes(s.days)
-                      ? p.filter((x) => x !== s.days)
-                      : [...p, s.days].sort((a, b) => b - a),
-                  )
-                }
-              >
-                {s.label}
-              </button>
-            ))}
+            {[
+              ...REMINDER_STEPS,
+              ...steps
+                .filter((d) => !REMINDER_STEPS.some((r) => r.days === d))
+                .map((d) => ({ days: d, label: `за ${d} дн.` })),
+            ]
+              .sort((a, b) => b.days - a.days)
+              .map((s) => (
+                <button
+                  key={s.days}
+                  type="button"
+                  className="chip"
+                  aria-pressed={steps.includes(s.days)}
+                  onClick={() =>
+                    setSteps((p) =>
+                      p.includes(s.days)
+                        ? p.filter((x) => x !== s.days)
+                        : [...p, s.days].sort((a, b) => b - a),
+                    )
+                  }
+                >
+                  {s.label}
+                </button>
+              ))}
           </div>
         </div>
         <div className="sheet-footer">

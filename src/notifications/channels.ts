@@ -10,6 +10,11 @@
  *   1 ics-calendar     — работает всегда, ноль инфраструктуры, ЭКРАН ВЫКЛЮЧЕН ✓
  *   2 web-push         — требует GitHub Actions + VAPID, проверяется на устройствах
  */
+import { kvGet, KV_KEYS } from '../data/db';
+import { loadSession } from '../data/session';
+import { auth } from '../data/remote/authStrategy';
+import { GitHubClient } from '../data/remote/githubClient';
+
 export type ChannelId = 'local-foreground' | 'ics-calendar' | 'web-push';
 
 export interface SupportReport {
@@ -233,18 +238,99 @@ class WebPushChannel implements NotificationChannel {
     });
   }
 
+  /**
+   * ЭТАП 3: настоящая подписка Web Push.
+   * Публичный ключ VAPID берём из public/vapid.json приложения (ротация без
+   * пересборки), подписку кладём в семейное хранилище data/push/<deviceId>.json —
+   * её читает отправитель напоминаний (workflow в публичном репозитории).
+   */
   async enable(): Promise<EnableResult> {
-    // Полная реализация (подписка, VAPID public key, сохранение в devices.json) — ЭТАП 3.
     const s = await this.isSupported();
     if (!s.supported) return { enabled: false, reason: s.reason };
-    return {
-      enabled: false,
-      reason: 'Канал будет включён на ЭТАПЕ 3 после проверки на реальных устройствах',
-    };
+
+    const owner = await kvGet<string>(KV_KEYS.remoteOwner);
+    const repo = await kvGet<string>(KV_KEYS.remoteRepo);
+    const branch = (await kvGet<string>(KV_KEYS.remoteBranch)) ?? 'main';
+    if (!owner || !repo) {
+      return { enabled: false, reason: 'Сначала подключите семейное хранилище в настройках' };
+    }
+
+    if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+      return {
+        enabled: false,
+        reason: 'Уведомления запрещены для приложения в настройках телефона',
+      };
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') {
+      return { enabled: false, reason: 'Разрешение на уведомления не получено' };
+    }
+
+    let vapidPublicKey: string | undefined;
+    try {
+      const res = await fetch(new URL('vapid.json', document.baseURI).href);
+      const cfg = (await res.json()) as { vapidPublicKey?: string };
+      vapidPublicKey = cfg.vapidPublicKey;
+    } catch {
+      return { enabled: false, reason: 'Не удалось прочитать конфигурацию push (vapid.json)' };
+    }
+    if (!vapidPublicKey) return { enabled: false, reason: 'Push ещё не настроен владельцем' };
+
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    const sub =
+      existing ??
+      (await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToArrayBuffer(vapidPublicKey),
+      }));
+
+    const deviceId = (await loadSession()).deviceId;
+    const client = new GitHubClient({ owner, repo, branch }, () => auth.getToken());
+    const path = `data/push/${deviceId}.json`;
+    const cur = await client.getFile(path);
+    const sha = cur.status === 'ok' ? cur.file.sha : null;
+    await client.putFile(
+      path,
+      JSON.stringify(
+        {
+          deviceId,
+          subscribedAt: new Date().toISOString(),
+          revoked: false,
+          subscription: sub.toJSON(),
+        },
+        null,
+        2,
+      ),
+      sha,
+      `push: подписка устройства ${deviceId}`,
+    );
+    return { enabled: true };
   }
 
-  disable(): Promise<void> {
-    return Promise.resolve();
+  async disable(): Promise<void> {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) await sub.unsubscribe();
+      const owner = await kvGet<string>(KV_KEYS.remoteOwner);
+      const repo = await kvGet<string>(KV_KEYS.remoteRepo);
+      const branch = (await kvGet<string>(KV_KEYS.remoteBranch)) ?? 'main';
+      if (!owner || !repo) return;
+      const deviceId = (await loadSession()).deviceId;
+      const client = new GitHubClient({ owner, repo, branch }, () => auth.getToken());
+      const path = `data/push/${deviceId}.json`;
+      const cur = await client.getFile(path);
+      const sha = cur.status === 'ok' ? cur.file.sha : null;
+      await client.putFile(
+        path,
+        JSON.stringify({ deviceId, revoked: true, at: new Date().toISOString() }, null, 2),
+        sha,
+        `push: отписка устройства ${deviceId}`,
+      );
+    } catch {
+      // Отписка — не критично: мёртвые подписки отправитель удалит сам по 410.
+    }
   }
   deliver(): Promise<DeliveryReport> {
     return Promise.resolve(emptyDelivery(this.id));
@@ -252,19 +338,38 @@ class WebPushChannel implements NotificationChannel {
   async diagnose(): Promise<DiagnosticSnapshot> {
     const s = await this.isSupported();
     const reg = await navigator.serviceWorker?.getRegistration?.();
+    let subscribed = false;
+    try {
+      const ready = await navigator.serviceWorker?.ready;
+      subscribed = Boolean(await ready?.pushManager?.getSubscription?.());
+    } catch {
+      // Диагностика не критична: остаётся false.
+    }
     return {
       channelId: this.id,
-      enabled: false,
+      enabled: subscribed,
       supported: s.supported,
       details: {
         serviceWorkerRegistered: Boolean(reg),
         pushApiSupported: typeof window !== 'undefined' && 'PushManager' in window,
+        subscribed,
         standalone: isStandalone(),
         ios: isIos(),
         reason: s.reason ?? null,
       },
     };
   }
+}
+
+/** URL-safe base64 (ключ VAPID) → ArrayBuffer для PushManager. */
+function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/gu, '+').replace(/_/gu, '/');
+  const raw = atob(base64);
+  const buf = new ArrayBuffer(raw.length);
+  const view = new Uint8Array(buf);
+  for (let i = 0; i < raw.length; i += 1) view[i] = raw.charCodeAt(i);
+  return buf;
 }
 
 const registry: NotificationChannel[] = [
