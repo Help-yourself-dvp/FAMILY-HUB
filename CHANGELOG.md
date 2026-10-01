@@ -84,7 +84,7 @@
 
 ### Проверки
 
-92/92 теста · typecheck чисто · lint 0 ошибок · сборка под `BASE_PATH=/FAMILY-HUB/` успешна.
+93/93 теста · typecheck чисто · lint 0 ошибок · сборка под `BASE_PATH=/FAMILY-HUB/` успешна.
 
 ---
 
