@@ -10,7 +10,8 @@ if (pkg !== canonical) problems.push(`package.json = ${pkg}, ожидается 
 
 const manifest = readFileSync('public/manifest.webmanifest', 'utf8');
 const m = /"version"\s*:\s*"([^"]+)"/.exec(manifest);
-if (m && m[1] !== canonical) problems.push(`manifest.webmanifest = ${m[1]}, ожидается ${canonical}`);
+if (m && m[1] !== canonical)
+  problems.push(`manifest.webmanifest = ${m[1]}, ожидается ${canonical}`);
 
 if (problems.length) {
   console.error('РАССИНХРОН ВЕРСИЙ (version.json — единственный источник):');

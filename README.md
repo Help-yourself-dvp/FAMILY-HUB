@@ -134,6 +134,8 @@ npm run lint       # ESLint (typed)
 npx tsc -b         # typecheck (strict)
 npm run test       # Vitest (60 тестов критичной логики)
 npm run check      # lint + test + build одной командой
+node scripts/make-icons-from-png.mjs <ваш-квадрат.png>  # иконки из картинки владельца
+node scripts/make-icons-from-png.mjs <png> --check      # только проверить исходник
 ```
 
 ### Как проверить синхронизацию на двух телефонах

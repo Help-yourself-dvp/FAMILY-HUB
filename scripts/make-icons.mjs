@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /**
- * Генерация иконок PWA без единой зависимости — только zlib из Node.
+ * Генерация ПРОЦЕДУРНЫХ иконок-заглушек PWA без единой зависимости — только zlib из Node.
  * (ТЗ §35 K: «иконки/заглушки, если невозможно получить финальные assets».)
+ *
+ * ЕСЛИ У ВЛАДЕЛЬЦА ЕСТЬ СВОЯ КАРТИНКА — использовать НЕ этот скрипт, а
+ * scripts/make-icons-from-png.mjs: он читает PNG владельца и раскладывает его по всем
+ * форматам (включая maskable для Android и apple-touch для iOS) одним прогоном.
  * PNG пишется вручную: IHDR + IDAT + IEND, RGBA 8 бит.
  */
 import { deflateSync, crc32 } from 'node:zlib';
@@ -24,15 +28,20 @@ function encodePng(size, pixelFn) {
     raw[o++] = 0; // filter: None
     for (let x = 0; x < size; x++) {
       const [r, g, b, a] = pixelFn(x, y, size);
-      raw[o++] = r; raw[o++] = g; raw[o++] = b; raw[o++] = a;
+      raw[o++] = r;
+      raw[o++] = g;
+      raw[o++] = b;
+      raw[o++] = a;
     }
   }
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(size, 0);
   ihdr.writeUInt32BE(size, 4);
-  ihdr[8] = 8;  // bit depth
-  ihdr[9] = 6;  // color type RGBA
-  ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // color type RGBA
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', ihdr),
@@ -42,7 +51,11 @@ function encodePng(size, pixelFn) {
 }
 
 const lerp = (a, b, t) => Math.round(a + (b - a) * t);
-const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const hex = (h) => [
+  parseInt(h.slice(1, 3), 16),
+  parseInt(h.slice(3, 5), 16),
+  parseInt(h.slice(5, 7), 16),
+];
 
 const C1 = hex('#6f97ff'); // верх-лево
 const C2 = hex('#2f4fd8'); // низ-право
@@ -66,7 +79,9 @@ function houseMask(nx, ny) {
   const FE = 0.006;
   const aa = (v) => Math.min(1, Math.max(0, v));
   // Крыша: треугольник с вершиной (0.5, 0.20), основание y=0.52, x 0.16..0.84
-  const roofTop = 0.20, roofBottom = 0.53, roofHalf = 0.34;
+  const roofTop = 0.2,
+    roofBottom = 0.53,
+    roofHalf = 0.34;
   let m = 0;
   if (ny >= roofTop - FE && ny <= roofBottom + FE) {
     const t = (ny - roofTop) / (roofBottom - roofTop);
@@ -74,17 +89,26 @@ function houseMask(nx, ny) {
     const inside = Math.abs(nx - 0.5) <= half;
     const edge = half - Math.abs(nx - 0.5);
     m = Math.max(m, inside ? aa(edge / FE) : 0);
-    m = Math.max(m, aa((ny - (roofTop - FE)) / FE) * aa(((roofBottom + FE) - ny) / FE) * (inside ? 1 : 0));
+    m = Math.max(
+      m,
+      aa((ny - (roofTop - FE)) / FE) * aa((roofBottom + FE - ny) / FE) * (inside ? 1 : 0),
+    );
   }
   // Корпус: x 0.27..0.73, y 0.50..0.80
-  const bx0 = 0.27, bx1 = 0.73, by0 = 0.50, by1 = 0.80;
+  const bx0 = 0.27,
+    bx1 = 0.73,
+    by0 = 0.5,
+    by1 = 0.8;
   if (nx >= bx0 - FE && nx <= bx1 + FE && ny >= by0 - FE && ny <= by1 + FE) {
     const e = Math.min(nx - bx0, bx1 - nx, ny - by0, by1 - ny);
     m = Math.max(m, aa(e / FE));
   }
   if (m <= 0) return 0;
   // Дверь: вырез в корпусе (показываем фон)
-  const dx0 = 0.435, dx1 = 0.565, dy0 = 0.63, dy1 = 0.80;
+  const dx0 = 0.435,
+    dx1 = 0.565,
+    dy0 = 0.63,
+    dy1 = 0.8;
   if (nx > dx0 && nx < dx1 && ny > dy0 && ny < dy1) return 0;
   return Math.min(1, m);
 }
