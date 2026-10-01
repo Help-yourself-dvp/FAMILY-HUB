@@ -1,12 +1,15 @@
 # Тонкий workflow (Universal Guide §6.1): инфраструктура минимальна, весь изменяемый
 # код живёт обычными файлами. Запускается пушем, а не человеком.
 #
-# Порядок шагов необычный и это осознанно: сборка стоит ДО тестов.
-# 2026-10-01 на runner'е GitHub `vite build` не создавал dist/, если перед ним в том же
-# job'е прогонялись тесты (vitest + jsdom), тогда как в deploy-preview.yml — где тестов
-# нет — сборка того же коммита проходила успешно. Логи Actions из среды разработки не
-# скачиваются (недоступны *.actions.githubusercontent.com и *.blob.core.windows.net),
-# поэтому причина проверяется перестановкой шагов (вопрос Q11 в HANDOFF.md).
+# Порядок шагов: сборка стоит ДО тестов и выполняется ТОЧНО той же командой, что и в
+# deploy-preview.yml (BASE_PATH передаётся инлайн, а не через `env:` шага).
+# 2026-10-01 на runner'е GitHub `vite build` в этом файле не создавал dist/, тогда как в
+# deploy-preview.yml сборка того же коммита (992de2a) прошла успешно и собрала артефакт.
+# Перестановка шагов относительно тестов причину не устранила (проверено на 71b357f),
+# поэтому следующим подозрением стала именно форма передачи переменной окружения.
+# Логи Actions из среды разработки не скачиваются (*.actions.githubusercontent.com и
+# *.blob.core.windows.net недоступны), поэтому причина устанавливается перебором
+# отличий — вопрос Q11 в HANDOFF.md.
 name: CI
 
 on:
@@ -50,6 +53,7 @@ jobs:
         run: |
           set -o pipefail
           BASE_PATH=/FAMILY-HUB/ npx vite build 2>&1 | tee /tmp/ci-vite-build.log
+          ls -la dist 2>&1 || echo "dist/ не создан"
         continue-on-error: true
 
       - name: Build diagnostics
@@ -71,8 +75,8 @@ jobs:
 
       - name: Artifact must be non-empty (Definition of Done, §10)
         run: |
-          if [ -e /tmp/build-empty ]; then
-            echo "Сборка не дала артефакта. Текст ошибки — в шаге 'Build diagnostics' выше."
+          if [ ! -s dist/index.html ]; then
+            echo "::error::Сборка не создала dist/. Текст ошибки — в шаге 'Build diagnostics' этого же запуска (логи из среды разработки не читаются, поэтому дублируем сюда)."
             exit 1
           fi
           test -s dist/index.html
