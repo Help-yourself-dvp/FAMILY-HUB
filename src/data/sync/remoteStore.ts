@@ -10,7 +10,13 @@
 import { db, httpCacheRowKey } from './localStore';
 import { ConflictError, type RemoteStorePort } from './core';
 import { GitHubClient, GitHubError, type RemoteFileResult } from '../remote/githubClient';
-import { SCHEMA_VERSION, type EntityKind, type RemoteFile, type Syncable, REMOTE_PATH } from '../../domain/types';
+import {
+  SCHEMA_VERSION,
+  type EntityKind,
+  type RemoteFile,
+  type Syncable,
+  REMOTE_PATH,
+} from '../../domain/types';
 
 export class GitHubRemoteStore implements RemoteStorePort {
   private client: GitHubClient;
@@ -88,13 +94,19 @@ export class GitHubRemoteStore implements RemoteStorePort {
   ): Promise<string> {
     const message = commitMessage(kind, file);
     try {
-      const newSha = await this.client.putFile(REMOTE_PATH[kind], JSON.stringify(file, null, 2), sha, message);
+      const newSha = await this.client.putFile(
+        REMOTE_PATH[kind],
+        JSON.stringify(file, null, 2),
+        sha,
+        message,
+      );
       this.rateRemaining = this.client.rateLimit.remaining;
       // Кэш ETag инвалидируем: содержимое изменилось.
       await db.httpCache.delete(this.cacheKey(kind));
       return newSha;
     } catch (e) {
-      if (e instanceof GitHubError && e.code === 'conflict') throw new ConflictError('sha mismatch (409)');
+      if (e instanceof GitHubError && e.code === 'conflict')
+        throw new ConflictError('sha mismatch (409)');
       throw e;
     }
   }

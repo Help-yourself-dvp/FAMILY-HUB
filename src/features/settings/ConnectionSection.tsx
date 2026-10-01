@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 import { kvGet, KV_KEYS } from '../../data/db';
-import { auth } from '../../data/remote/authStrategy';
+import { auth, type AuthDescription } from '../../data/remote/authStrategy';
 import { GitHubClient } from '../../data/remote/githubClient';
 import { encodeSetupCode, parseSetupCode, SetupCodeError } from '../../data/remote/setupCode';
 import { syncNow } from '../../data/sync/engine';
@@ -30,8 +30,7 @@ export default function ConnectionSection() {
   const [branch, setBranch] = useState('main');
   const [token, setToken] = useState('');
   const [savedToken, setSavedToken] = useState(false);
-  const [expiresAt, setExpiresAt] = useState<string | null>(null);
-  const [daysLeft, setDaysLeft] = useState<number | null>(null);
+  const [desc, setDesc] = useState<AuthDescription | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -42,11 +41,6 @@ export default function ConnectionSection() {
   const [codeCopied, setCodeCopied] = useState(false);
   const [codeInput, setCodeInput] = useState('');
 
-  const applyExpiry = (iso: string | null) => {
-    setExpiresAt(iso);
-    setDaysLeft(iso ? Math.floor((Date.parse(iso) - Date.now()) / 86_400_000) : null);
-  };
-
   useEffect(() => {
     void (async () => {
       setOwner((await kvGet<string>(KV_KEYS.remoteOwner)) ?? '');
@@ -54,9 +48,8 @@ export default function ConnectionSection() {
       setBranch((await kvGet<string>(KV_KEYS.remoteBranch)) ?? 'main');
       const d = await auth.current().describe();
       setSavedToken(d.kind !== 'none');
-      applyExpiry(d.expiresAt);
+      setDesc(d);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- applyExpiry стабилен по смыслу
   }, []);
 
   // Чистое инлайн-выражение: вызов методов класса при рендере линтер считает небезопасным
@@ -82,7 +75,7 @@ export default function ConnectionSection() {
 
     setSavedToken(true);
     const d = await auth.current().describe();
-    applyExpiry(d.expiresAt);
+    setDesc(d);
     setResult({
       tone: 'ok',
       text: `Подключено: ${user.login} → ${cfg.owner}/${cfg.repo} (${repoInfo.defaultBranch}). Можно синхронизироваться.`,
@@ -104,10 +97,17 @@ export default function ConnectionSection() {
       }
       const t = await auth.getToken();
       if (!t) {
-        setResult({ tone: 'err', text: 'Нет ключа доступа. Вставьте токен, вставьте код или откройте инструкцию.' });
+        setResult({
+          tone: 'err',
+          text: 'Нет ключа доступа. Вставьте токен, вставьте код или откройте инструкцию.',
+        });
         return;
       }
-      await verifyAndConnect({ owner: owner.trim(), repo: repo.trim(), branch: branch.trim() || 'main' });
+      await verifyAndConnect({
+        owner: owner.trim(),
+        repo: repo.trim(),
+        branch: branch.trim() || 'main',
+      });
     } catch (e) {
       setResult({ tone: 'err', text: describeError(e) });
     } finally {
@@ -141,10 +141,20 @@ export default function ConnectionSection() {
     try {
       const t = await auth.getToken();
       if (!t || !owner.trim() || !repo.trim()) {
-        setResult({ tone: 'err', text: 'Сначала подключите синхронизацию: код составляется из рабочего подключения.' });
+        setResult({
+          tone: 'err',
+          text: 'Сначала подключите синхронизацию: код составляется из рабочего подключения.',
+        });
         return;
       }
-      setCode(encodeSetupCode({ owner: owner.trim(), repo: repo.trim(), branch: branch.trim() || 'main', token: t }));
+      setCode(
+        encodeSetupCode({
+          owner: owner.trim(),
+          repo: repo.trim(),
+          branch: branch.trim() || 'main',
+          token: t,
+        }),
+      );
       setCodeOpen(true);
       setCodeCopied(false);
     } catch (e) {
@@ -158,19 +168,26 @@ export default function ConnectionSection() {
       setCodeCopied(true);
     } catch {
       // Буфер обмена может быть закрыт браузером (несecure-контекст, разрешения).
-      setResult({ tone: 'err', text: 'Браузер не дал скопировать. Выделите код ниже и скопируйте вручную.' });
+      setResult({
+        tone: 'err',
+        text: 'Браузер не дал скопировать. Выделите код ниже и скопируйте вручную.',
+      });
     }
   };
 
   const disconnect = async () => {
-    if (!window.confirm('Отключить синхронизацию? Локальные данные останутся на устройстве.')) return;
+    if (!window.confirm('Отключить синхронизацию? Локальные данные останутся на устройстве.'))
+      return;
     await auth.current().clear();
     await clearRemoteConfig();
     setSavedToken(false);
-    applyExpiry(null);
+    setDesc(await auth.current().describe());
     setCodeOpen(false);
     setCode('');
-    setResult({ tone: 'ok', text: 'Синхронизация отключена. Приложение работает в локальном режиме.' });
+    setResult({
+      tone: 'ok',
+      text: 'Синхронизация отключена. Приложение работает в локальном режиме.',
+    });
   };
 
   return (
@@ -191,22 +208,24 @@ export default function ConnectionSection() {
             <div className="grow">
               <div className="strong">Локальный режим</div>
               <div className="small">
-                Приложение полностью работает, но данные видны только на этом устройстве.
-                Чтобы делиться списками с семьёй, подключите приватный репозиторий.
+                Приложение полностью работает, но данные видны только на этом устройстве. Чтобы
+                делиться списками с семьёй, подключите приватный репозиторий.
               </div>
             </div>
           </Banner>
         )}
 
-        {daysLeft !== null && daysLeft < 45 && (
-          <Banner tone={daysLeft < 0 ? 'err' : 'warn'}>
+        {desc?.kind === 'pat' && desc.expiresAt && desc.daysLeft !== null && desc.daysLeft < 45 && (
+          <Banner tone={desc.daysLeft < 0 ? 'err' : 'warn'}>
             <div className="grow">
               <div className="strong">
-                {daysLeft < 0 ? 'Ключ доступа истёк' : `Ключ доступа истекает через ${daysLeft} дн.`}
+                {desc.daysLeft < 0
+                  ? 'Ключ доступа истёк'
+                  : `Ключ доступа истекает через ${desc.daysLeft} дн.`}
               </div>
               <div className="small">
-                GitHub ограничивает срок действия ключа годом — это не ошибка приложения.
-                Перевыпустите его по инструкции и вставьте новый.
+                Срок взят из ответа GitHub, это не ошибка приложения. Перевыпустите ключ по
+                инструкции и вставьте новый — либо создайте бессрочный.
               </div>
             </div>
             <button type="button" className="btn btn--sm" onClick={() => setGuideOpen(true)}>
@@ -250,7 +269,11 @@ export default function ConnectionSection() {
         </Field>
 
         <Field
-          label={savedToken ? 'Ключ доступа (сохранён — введите, чтобы заменить)' : 'Ключ доступа (fine-grained PAT)'}
+          label={
+            savedToken
+              ? 'Ключ доступа (сохранён — введите, чтобы заменить)'
+              : 'Ключ доступа (fine-grained PAT)'
+          }
           hint="Хранится только в этом браузере. В код приложения не попадает и в журнал не пишется."
         >
           <input
@@ -278,7 +301,12 @@ export default function ConnectionSection() {
         {result && <Banner tone={result.tone}>{result.text}</Banner>}
 
         <div className="row" style={{ gap: 'var(--sp-2)' }}>
-          <button type="button" className="btn btn--primary grow" disabled={busy} onClick={() => void connect()}>
+          <button
+            type="button"
+            className="btn btn--primary grow"
+            disabled={busy}
+            onClick={() => void connect()}
+          >
             {busy ? 'Проверяем…' : 'Проверить и подключить'}
           </button>
           <button type="button" className="btn btn--ghost" onClick={() => setGuideOpen(true)}>
@@ -287,24 +315,25 @@ export default function ConnectionSection() {
         </div>
 
         {savedToken && (
-          <button type="button" className="btn btn--danger btn--block btn--sm" onClick={() => void disconnect()}>
+          <button
+            type="button"
+            className="btn btn--danger btn--block btn--sm"
+            onClick={() => void disconnect()}
+          >
             Отключить синхронизацию
           </button>
         )}
 
-        <div className="tiny muted">
-          Ключ сохранён: {savedToken ? 'да' : 'нет'}
-          {expiresAt ? ` · оценка истечения: ${new Date(expiresAt).toLocaleDateString('ru-RU')}` : ''}
-        </div>
+        <div className="tiny muted">{expiryLine(desc, savedToken)}</div>
       </div>
 
       {/* ---------------- Второй телефон и остальные члены семьи ---------------- */}
       <div className="card stack">
         <div className="strong">Второй телефон и другие члены семьи</div>
         <p className="small" style={{ margin: 0, lineHeight: 1.55, color: 'var(--text-2)' }}>
-          Аккаунт GitHub нужен <b>только тому, кто создал хранилище</b>. Остальным — не нужен:
-          они подключаются кодом с этого телефона. Код содержит семейный ключ, поэтому
-          передавайте его только внутри семьи (например, себе в мессенджер).
+          Аккаунт GitHub нужен <b>только тому, кто создал хранилище</b>. Остальным — не нужен: они
+          подключаются кодом с этого телефона. Код содержит семейный ключ, поэтому передавайте его
+          только внутри семьи (например, себе в мессенджер).
         </p>
 
         {codeOpen && code ? (
@@ -313,25 +342,41 @@ export default function ConnectionSection() {
               {code}
             </div>
             <div className="row" style={{ gap: 'var(--sp-2)' }}>
-              <button type="button" className="btn btn--sm btn--primary" onClick={() => void copyCode()}>
+              <button
+                type="button"
+                className="btn btn--sm btn--primary"
+                onClick={() => void copyCode()}
+              >
                 {codeCopied ? 'Скопировано' : 'Скопировать код'}
               </button>
-              <button type="button" className="btn btn--sm btn--ghost" onClick={() => setCodeOpen(false)}>
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost"
+                onClick={() => setCodeOpen(false)}
+              >
                 Скрыть
               </button>
             </div>
             <div className="tiny muted">
-              На втором телефоне: Настройки → «Семейный репозиторий» → вставьте код в поле ниже
-              → «Подключить по коду». Ни аккаунта, ни создания ключа там не потребуется.
+              На втором телефоне: Настройки → «Семейный репозиторий» → вставьте код в поле ниже →
+              «Подключить по коду». Ни аккаунта, ни создания ключа там не потребуется.
             </div>
           </div>
         ) : (
-          <button type="button" className="btn btn--block" disabled={busy} onClick={() => void makeCode()}>
+          <button
+            type="button"
+            className="btn btn--block"
+            disabled={busy}
+            onClick={() => void makeCode()}
+          >
             Получить код для второго устройства
           </button>
         )}
 
-        <Field label="Подключить это устройство по коду" hint="Вставьте код, полученный на первом телефоне семьи.">
+        <Field
+          label="Подключить это устройство по коду"
+          hint="Вставьте код, полученный на первом телефоне семьи."
+        >
           <textarea
             className="input mono"
             rows={3}
@@ -343,7 +388,12 @@ export default function ConnectionSection() {
             spellCheck={false}
           />
         </Field>
-        <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={() => void connectByCode()}>
+        <button
+          type="button"
+          className="btn btn--primary btn--block"
+          disabled={busy}
+          onClick={() => void connectByCode()}
+        >
           {busy ? 'Подключаем…' : 'Подключить по коду'}
         </button>
       </div>
@@ -351,6 +401,16 @@ export default function ConnectionSection() {
       <PatGuideSheet open={guideOpen} onClose={() => setGuideOpen(false)} />
     </section>
   );
+}
+
+/** Человекочитаемая строка о сроке ключа: факт от GitHub, а не наша оценка. */
+function expiryLine(d: AuthDescription | null, saved: boolean): string {
+  if (!saved || !d || d.kind === 'none') return 'Ключ сохранён: нет';
+  if (d.neverExpires) return 'Ключ сохранён: да · срок: без срока (по данным GitHub)';
+  if (!d.expiresAt)
+    return 'Ключ сохранён: да · срок: станет известен после первого запроса к GitHub';
+  const date = new Date(d.expiresAt).toLocaleDateString('ru-RU');
+  return `Ключ сохранён: да · срок: до ${date}${d.expiresIsEstimate ? ' (оценка)' : ' (по данным GitHub)'}`;
 }
 
 /**
@@ -367,9 +427,8 @@ function PatGuideSheet({ open, onClose }: { open: boolean; onClose: () => void }
       <div className="stack">
         <Banner tone="info">
           <div className="grow small">
-            <b>Кому нужен аккаунт GitHub:</b> только тому, кто создаёт семейное хранилище
-            (шаги 1–2). Остальные члены семьи подключаются кодом за одну минуту и без
-            аккаунта (шаг 4).
+            <b>Кому нужен аккаунт GitHub:</b> только тому, кто создаёт семейное хранилище (шаги
+            1–2). Остальные члены семьи подключаются кодом за одну минуту и без аккаунта (шаг 4).
           </div>
         </Banner>
 
@@ -395,13 +454,18 @@ function PatGuideSheet({ open, onClose }: { open: boolean; onClose: () => void }
           <div className="strong">Шаг 2. Создайте семейный ключ доступа (fine-grained PAT)</div>
           <ol className="small" style={{ paddingLeft: 20, margin: 0, lineHeight: 1.6 }}>
             <li>
-              Откройте <span className="mono">https://github.com/settings/personal-access-tokens/new</span>
+              Откройте{' '}
+              <span className="mono">https://github.com/settings/personal-access-tokens/new</span>
             </li>
             <li>
               Token name: <span className="mono">Family Hub (семейный ключ)</span>
             </li>
             <li>
-              Expiration: <b>максимальный срок</b> (GitHub не даёт больше года)
+              Expiration: можно выбрать <b>No expiration</b> — тогда ключ не придётся перевыпускать
+              раз в год, а приложение покажет «без срока». Минус: утечённый ключ останется
+              действующим, пока вы не отзовёте его вручную. Если это смущает — поставьте срок 1 год:
+              приложение заранее напомнит о продлении (срок оно берёт из ответа GitHub, а не
+              придумывает).
             </li>
             <li>Resource owner: ваш логин</li>
             <li>
@@ -420,8 +484,8 @@ function PatGuideSheet({ open, onClose }: { open: boolean; onClose: () => void }
         <div className="card stack" style={{ gap: 8 }}>
           <div className="strong">Шаг 3. Вставьте в приложение на этом телефоне</div>
           <div className="small">
-            Владелец = ваш логин GitHub, Репозиторий = <span className="mono">family-hub-data</span>,
-            Ветка = <span className="mono">main</span>, Ключ = то, что скопировали. Затем нажмите
+            Владелец = ваш логин GitHub, Репозиторий = <span className="mono">family-hub-data</span>
+            , Ветка = <span className="mono">main</span>, Ключ = то, что скопировали. Затем нажмите
             «Проверить и подключить».
           </div>
         </div>
@@ -432,22 +496,22 @@ function PatGuideSheet({ open, onClose }: { open: boolean; onClose: () => void }
             <li>На этом телефоне: кнопка «Получить код для второго устройства».</li>
             <li>Скопируйте код и передайте члену семьи (хоть себе в мессенджер).</li>
             <li>
-              На его телефоне: Настройки → «Семейный репозиторий» → вставить код →
-              «Подключить по коду». Готово, аккаунт GitHub не нужен.
+              На его телефоне: Настройки → «Семейный репозиторий» → вставить код → «Подключить по
+              коду». Готово, аккаунт GitHub не нужен.
             </li>
           </ol>
           <div className="tiny muted">
-            Код равносилен семейному ключу: не публикуйте его и не пересылайте посторонним.
-            Если захотите отзываемый доступ для отдельного телефона — выпустите для него
-            отдельный ключ по шагу 2 и вставьте вручную вместо кода.
+            Код равносилен семейному ключу: не публикуйте его и не пересылайте посторонним. Если
+            захотите отзываемый доступ для отдельного телефона — выпустите для него отдельный ключ
+            по шагу 2 и вставьте вручную вместо кода.
           </div>
         </div>
 
         <Banner tone="warn">
           <div className="grow small">
-            <b>Через год</b> ключ истечёт — это ограничение GitHub, а не ошибка. Приложение
-            напомнит заранее и продолжит работать локально, пока вы не вставите новый ключ.
-            После замены ключа обновите код подключения на остальных телефонах.
+            <b>Через год</b> ключ истечёт — это ограничение GitHub, а не ошибка. Приложение напомнит
+            заранее и продолжит работать локально, пока вы не вставите новый ключ. После замены
+            ключа обновите код подключения на остальных телефонах.
           </div>
         </Banner>
 

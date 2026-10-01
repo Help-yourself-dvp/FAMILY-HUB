@@ -4,12 +4,18 @@ import { useSyncState } from '../../app/hooks';
 import { notificationChannels, isStandalone, isIos } from '../../notifications/channels';
 import { readDisplayMode } from './helpers';
 
-
 export default function DiagnosticsSection() {
   const sync = useSyncState();
   const [sw, setSw] = useState<string>('…');
   const [swScope, setSwScope] = useState<string>('—');
-  const [diag, setDiag] = useState<Array<{ channelId: string; enabled: boolean; supported: boolean; details: Record<string, string | number | boolean | null> }>>([]);
+  const [diag, setDiag] = useState<
+    Array<{
+      channelId: string;
+      enabled: boolean;
+      supported: boolean;
+      details: Record<string, string | number | boolean | null>;
+    }>
+  >([]);
   const [persisted, setPersisted] = useState<string>('…');
 
   useEffect(() => {
@@ -19,13 +25,19 @@ export default function DiagnosticsSection() {
         return;
       }
       const reg = await navigator.serviceWorker.getRegistration();
-      setSw(reg ? `зарегистрирован (${reg.active?.state ?? reg.installing?.state ?? '—'})` : 'не зарегистрирован');
+      setSw(
+        reg
+          ? `зарегистрирован (${reg.active?.state ?? reg.installing?.state ?? '—'})`
+          : 'не зарегистрирован',
+      );
       setSwScope(reg?.scope ?? '—');
       const d = [];
       for (const c of notificationChannels.all()) d.push(await c.diagnose());
       setDiag(d);
       try {
-        setPersisted(navigator.storage?.persisted ? String(await navigator.storage.persisted()) : 'n/a');
+        setPersisted(
+          navigator.storage?.persisted ? String(await navigator.storage.persisted()) : 'n/a',
+        );
       } catch {
         setPersisted('n/a');
       }
@@ -51,7 +63,12 @@ export default function DiagnosticsSection() {
         {row('Service Worker', sw)}
         {row('scope SW', swScope)}
         {row('Notification API', typeof window !== 'undefined' && 'Notification' in window)}
-        {row('Notification.permission', typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported')}
+        {row(
+          'Notification.permission',
+          typeof window !== 'undefined' && 'Notification' in window
+            ? Notification.permission
+            : 'unsupported',
+        )}
         {row('Push API', typeof window !== 'undefined' && 'PushManager' in window)}
         {row('persisted storage', persisted)}
         <hr className="divider" />

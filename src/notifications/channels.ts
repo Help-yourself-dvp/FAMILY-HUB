@@ -73,8 +73,7 @@ export function isStandalone(): boolean {
   if (typeof window === 'undefined') return false;
   const nav = window.navigator as Navigator & { standalone?: boolean };
   return (
-    window.matchMedia?.('(display-mode: standalone)').matches === true ||
-    nav.standalone === true
+    window.matchMedia?.('(display-mode: standalone)').matches === true || nav.standalone === true
   );
 }
 
@@ -96,7 +95,8 @@ const emptyDelivery = (channelId: ChannelId): DeliveryReport => ({
 class LocalForegroundChannel implements NotificationChannel {
   readonly id = 'local-foreground' as const;
   readonly label = 'Уведомления в приложении';
-  readonly description = 'Лента на Главной и системные уведомления, пока приложение открыто. Работает всегда, не требует интернета и внешних сервисов.';
+  readonly description =
+    'Лента на Главной и системные уведомления, пока приложение открыто. Работает всегда, не требует интернета и внешних сервисов.';
   readonly worksScreenOff = false;
   readonly needsExternalInfra = false;
   readonly level = 0 as const;
@@ -118,7 +118,10 @@ class LocalForegroundChannel implements NotificationChannel {
       return { enabled: false, reason: 'Уведомления запрещены в настройках браузера' };
     // Запрос ТОЛЬКО по явному действию пользователя (ТЗ §11): вызывается из кнопки в UI.
     const res = await Notification.requestPermission();
-    return { enabled: res === 'granted', reason: res === 'granted' ? undefined : `Разрешение: ${res}` };
+    return {
+      enabled: res === 'granted',
+      reason: res === 'granted' ? undefined : `Разрешение: ${res}`,
+    };
   }
 
   async disable(): Promise<void> {
@@ -161,7 +164,8 @@ class LocalForegroundChannel implements NotificationChannel {
 class IcsCalendarChannel implements NotificationChannel {
   readonly id = 'ics-calendar' as const;
   readonly label = 'Календарь телефона (ICS)';
-  readonly description = 'Критичные даты выгружаются в нативный календарь iOS/Android. Напомнит сам телефон — даже если приложение закрыто, а интернет недоступен.';
+  readonly description =
+    'Критичные даты выгружаются в нативный календарь iOS/Android. Напомнит сам телефон — даже если приложение закрыто, а интернет недоступен.';
   readonly worksScreenOff = true;
   readonly needsExternalInfra = false;
   readonly level = 1 as const;
@@ -169,7 +173,9 @@ class IcsCalendarChannel implements NotificationChannel {
   isSupported(): Promise<SupportReport> {
     // Скачивание .ics работает во всех мобильных браузерах; на iOS открытие файла
     // предлагает «Добавить все события в календарь».
-    return Promise.resolve({ supported: typeof window !== 'undefined' && typeof Blob !== 'undefined' });
+    return Promise.resolve({
+      supported: typeof window !== 'undefined' && typeof Blob !== 'undefined',
+    });
   }
   enable(): Promise<EnableResult> {
     return Promise.resolve({ enabled: true });
@@ -197,13 +203,18 @@ class IcsCalendarChannel implements NotificationChannel {
 class WebPushChannel implements NotificationChannel {
   readonly id = 'web-push' as const;
   readonly label = 'Push при закрытом приложении';
-  readonly description = 'Системные уведомления через GitHub Actions. Требует установки PWA на Home Screen и проверки на вашем устройстве (ЭТАП 3).';
+  readonly description =
+    'Системные уведомления через GitHub Actions. Требует установки PWA на Home Screen и проверки на вашем устройстве (ЭТАП 3).';
   readonly worksScreenOff = true;
   readonly needsExternalInfra = true;
   readonly level = 2 as const;
 
   isSupported(): Promise<SupportReport> {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    if (
+      typeof window === 'undefined' ||
+      !('serviceWorker' in navigator) ||
+      !('PushManager' in window)
+    ) {
       return Promise.resolve({ supported: false, reason: 'Браузер не поддерживает Web Push' });
     }
     if (isIos() && !isStandalone()) {
@@ -211,7 +222,8 @@ class WebPushChannel implements NotificationChannel {
       return Promise.resolve({
         supported: false,
         requiresInstall: true,
-        reason: 'На iPhone нужно сначала установить приложение: Safari → Поделиться → «На экран Домой»',
+        reason:
+          'На iPhone нужно сначала установить приложение: Safari → Поделиться → «На экран Домой»',
       });
     }
     return Promise.resolve({
@@ -225,7 +237,10 @@ class WebPushChannel implements NotificationChannel {
     // Полная реализация (подписка, VAPID public key, сохранение в devices.json) — ЭТАП 3.
     const s = await this.isSupported();
     if (!s.supported) return { enabled: false, reason: s.reason };
-    return { enabled: false, reason: 'Канал будет включён на ЭТАПЕ 3 после проверки на реальных устройствах' };
+    return {
+      enabled: false,
+      reason: 'Канал будет включён на ЭТАПЕ 3 после проверки на реальных устройствах',
+    };
   }
 
   disable(): Promise<void> {

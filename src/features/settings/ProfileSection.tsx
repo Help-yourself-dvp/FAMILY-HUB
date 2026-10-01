@@ -4,7 +4,6 @@ import { db } from '../../data/db';
 import { loadSession, PROFILE_COLORS, updateProfile } from '../../data/session';
 import { Field } from '../../design/ui';
 
-
 export default function ProfileSection() {
   const [name, setName] = useState('');
   const [color, setColor] = useState(PROFILE_COLORS[0] as string);

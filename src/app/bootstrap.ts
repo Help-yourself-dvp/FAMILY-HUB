@@ -2,10 +2,24 @@
  * Инициализация приложения: сессия, тема, порты синхронизации, Service Worker.
  * Отдельный модуль, чтобы main.tsx оставался тонким, а порядок инициализации — явным.
  */
-import { kvGet, kvSet, KV_KEYS, requestPersistentStorage, localEntities, baseSnapshot, writeMerged } from '../data/db';
+import {
+  kvGet,
+  kvSet,
+  KV_KEYS,
+  requestPersistentStorage,
+  localEntities,
+  baseSnapshot,
+  writeMerged,
+} from '../data/db';
 import { loadSession, updateProfile } from '../data/session';
 import { auth } from '../data/remote/authStrategy';
-import { createPorts, setPorts, startAutoSync, refreshPending, type LocalStorePort } from '../data/sync/engine';
+import {
+  createPorts,
+  setPorts,
+  startAutoSync,
+  refreshPending,
+  type LocalStorePort,
+} from '../data/sync/engine';
 import type { EntityKind, Syncable } from '../domain/types';
 import { setSyncState } from '../data/sync/state';
 import { initTheme, type ThemeMode } from './theme';

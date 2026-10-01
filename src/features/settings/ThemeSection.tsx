@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import { kvGet, KV_KEYS } from '../../data/db';
 import { initTheme, setTheme, THEME_LABEL, THEME_MODES, type ThemeMode } from '../../app/theme';
 
-
 export default function ThemeSection() {
   const [mode, setMode] = useState<ThemeMode>('system');
   useEffect(() => {

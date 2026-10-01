@@ -116,6 +116,10 @@ export const KV_KEYS = {
   authPat: 'auth.pat',
   authPatSavedAt: 'auth.pat.savedAt',
   authPatExpiresAt: 'auth.pat.expiresAt',
+  /** Срок из заголовка GitHub — оценка или факт; пока ключа нет, срок «неизвестен». */
+  authPatExpiresIsEstimate: 'auth.pat.expiresIsEstimate',
+  /** Версия, которую пользователь видел в последний раз (плашка «обновлено до …»). */
+  lastSeenVersion: 'app.lastSeenVersion',
   remoteOwner: 'remote.owner',
   remoteRepo: 'remote.repo',
   remoteBranch: 'remote.branch',
@@ -149,7 +153,9 @@ export async function requestPersistentStorage(): Promise<boolean> {
 }
 
 /** Полный снимок локального состояния одного вида сущностей. */
-export async function localEntities<T extends Syncable>(kind: EntityKind): Promise<Record<string, T>> {
+export async function localEntities<T extends Syncable>(
+  kind: EntityKind,
+): Promise<Record<string, T>> {
   const rows = await tableFor<T>(kind).toArray();
   const out: Record<string, T> = {};
   for (const r of rows) out[r.id] = r;

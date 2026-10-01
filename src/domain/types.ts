@@ -68,7 +68,8 @@ export interface ShoppingItem extends Syncable {
   doneBy: string | null;
 }
 
-export type DeadlineKind = 'document' | 'vehicle' | 'home' | 'insurance' | 'service' | 'birthday' | 'custom';
+export type DeadlineKind =
+  'document' | 'vehicle' | 'home' | 'insurance' | 'service' | 'birthday' | 'custom';
 
 export type RecurrenceRule =
   | { type: 'none' }

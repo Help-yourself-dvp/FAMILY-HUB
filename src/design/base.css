@@ -1,10 +1,14 @@
 *,
 *::before,
-*::after { box-sizing: border-box; }
+*::after {
+  box-sizing: border-box;
+}
 
 html,
 body,
-#root { height: 100%; }
+#root {
+  height: 100%;
+}
 
 html {
   -webkit-text-size-adjust: 100%;
@@ -25,9 +29,22 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-h1, h2, h3, p { margin: 0; }
-button, input, textarea, select { font: inherit; color: inherit; }
-a { color: var(--accent); }
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+a {
+  color: var(--accent);
+}
 
 /* Контейнер приложения: учитывает safe areas со всех сторон (§6.15) */
 .app-shell {
@@ -37,9 +54,7 @@ a { color: var(--accent); }
   padding-top: var(--sat);
   padding-left: var(--sal);
   padding-right: var(--sar);
-  background:
-    radial-gradient(120% 60% at 15% -10%, var(--accent-soft), transparent 60%),
-    var(--bg);
+  background: radial-gradient(120% 60% at 15% -10%, var(--accent-soft), transparent 60%), var(--bg);
 }
 
 .screen {
@@ -80,7 +95,12 @@ a { color: var(--accent); }
   border-radius: var(--r-sm);
 }
 
-::selection { background: var(--accent-soft); }
+::selection {
+  background: var(--accent-soft);
+}
 
 /* Скроллбары не украшают мобильный UI */
-::-webkit-scrollbar { width: 0; height: 0; }
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}

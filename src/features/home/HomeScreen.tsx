@@ -13,7 +13,11 @@ import { PHASE_LABEL } from '../../data/sync/state';
 
 export default function HomeScreen({ ready }: { ready: boolean }) {
   const items = useLiveQuery(() => db.shopping.toArray(), [], undefined);
-  const activity = useLiveQuery(() => db.activity.orderBy('at').reverse().limit(8).toArray(), [], undefined);
+  const activity = useLiveQuery(
+    () => db.activity.orderBy('at').reverse().limit(8).toArray(),
+    [],
+    undefined,
+  );
   const sync = useSyncState();
 
   const stats = useMemo(() => {
@@ -59,7 +63,11 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         </Banner>
       )}
 
-      <Link to="/shopping" className="card card--glass" style={{ textDecoration: 'none', color: 'inherit' }}>
+      <Link
+        to="/shopping"
+        className="card card--glass"
+        style={{ textDecoration: 'none', color: 'inherit' }}
+      >
         <div className="card-title">Покупки</div>
         <div className="row row--between" style={{ marginTop: 'var(--sp-3)' }}>
           <Stat value={`${stats.now} / ${stats.soon}`} label="сейчас / скоро" />
@@ -71,13 +79,16 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
       <div className="card">
         <div className="card-title">Синхронизация</div>
         <div className="row row--between" style={{ marginTop: 'var(--sp-3)' }}>
-          <Stat value={PHASE_LABEL[sync.phase]} label={sync.configured ? 'подключено' : 'локальный режим'} />
+          <Stat
+            value={PHASE_LABEL[sync.phase]}
+            label={sync.configured ? 'подключено' : 'локальный режим'}
+          />
           <Stat value={sync.pendingCount} label="не отправлено" />
         </div>
         {!sync.configured && (
           <div className="small muted" style={{ marginTop: 'var(--sp-3)' }}>
-            Это приложение для совместного использования. Без подключения данные видны только на этом
-            устройстве. <Link to="/settings">Подключить семейный репозиторий →</Link>
+            Это приложение для совместного использования. Без подключения данные видны только на
+            этом устройстве. <Link to="/settings">Подключить семейный репозиторий →</Link>
           </div>
         )}
         {sync.lastError && (
@@ -116,8 +127,8 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         <div className="card-title">Дела и сроки</div>
         <div className="small muted" style={{ marginTop: 'var(--sp-3)' }}>
           Модули «Дела» (ЭТАП 7) и «Сроки» (ЭТАП 6) появятся после того, как будет проверена
-          синхронизация между устройствами. Порядок выбран намеренно: без работающей
-          синхронизации приложение не имеет смысла.
+          синхронизация между устройствами. Порядок выбран намеренно: без работающей синхронизации
+          приложение не имеет смысла.
         </div>
       </div>
     </div>
@@ -140,11 +151,16 @@ function Header() {
 
 function actionLabel(a: string): string {
   switch (a) {
-    case 'created': return 'добавлено';
-    case 'updated': return 'изменено';
-    case 'completed': return 'куплено';
-    case 'deleted': return 'удалено';
-    default: return a;
+    case 'created':
+      return 'добавлено';
+    case 'updated':
+      return 'изменено';
+    case 'completed':
+      return 'куплено';
+    case 'deleted':
+      return 'удалено';
+    default:
+      return a;
   }
 }
 
@@ -154,5 +170,7 @@ function formatTime(iso: string): string {
   const today = new Date();
   const sameDay = d.toDateString() === today.toDateString();
   const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  return sameDay ? time : d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' }) + ', ' + time;
+  return sameDay
+    ? time
+    : d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' }) + ', ' + time;
 }

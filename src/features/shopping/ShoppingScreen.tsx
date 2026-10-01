@@ -35,7 +35,8 @@ export default function ShoppingScreen({ ready }: { ready: boolean }) {
     const byHorizon = new Map<Horizon, ShoppingItem[]>();
     for (const h of HORIZONS) byHorizon.set(h, []);
     for (const i of active) byHorizon.get(i.horizon)?.push(i);
-    for (const list of byHorizon.values()) list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    for (const list of byHorizon.values())
+      list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     done.sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''));
     return { byHorizon, done, activeCount: active.length, doneCount: done.length };
   }, [items]);
@@ -167,7 +168,9 @@ function ShoppingRow({ item }: { item: ShoppingItem }) {
         type="button"
         role="checkbox"
         aria-checked={item.done}
-        aria-label={item.done ? `Снять отметку с ${item.title}` : `Отметить ${item.title} как купленное`}
+        aria-label={
+          item.done ? `Снять отметку с ${item.title}` : `Отметить ${item.title} как купленное`
+        }
         className="checkbox"
         onClick={() => void shoppingRepo.toggleDone(item.id)}
       />
@@ -281,7 +284,12 @@ export function AddShoppingSheet({ onClose }: { onClose: () => void }) {
           />
         </Field>
 
-        <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={() => void submit()}>
+        <button
+          type="button"
+          className="btn btn--primary btn--block"
+          disabled={busy}
+          onClick={() => void submit()}
+        >
           {busy ? 'Добавляем…' : 'Добавить'}
         </button>
       </div>

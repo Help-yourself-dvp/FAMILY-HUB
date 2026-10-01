@@ -15,11 +15,22 @@ export interface AuthDescription {
   kind: 'pat' | 'device-flow' | 'none';
   savedAt: string | null;
   /**
-   * Fine-grained PAT истекает максимум через год, и это ОБЯЗАТЕЛЬНО (факт F6).
-   * GitHub не сообщает срок действия токена через API, поэтому дата — оценка:
-   * либо ввёл пользователь, либо savedAt + 365 дней.
+   * Реальный срок действия ключа ПО ДАННЫМ GITHUB (ISO-дата) или null.
+   *
+   * Раньше (до 0.1.4) здесь всегда лежала наша оценка «savedAt + 365 дней», потому что
+   * в документации 2022 года срок у fine-grained PAT был обязательным (факт F6).
+   * На приёмке 2026-10-01 владелец увидел при создании ключа пункт **«No expiration»** —
+   * бессрочные fine-grained PAT существуют, и оценка «год» врала.
+   *
+   * Теперь срок берётся из заголовка ответа `github-authentication-token-expiration`:
+   * GitHub отдаёт его на каждом авторизованном запросе для ключей СО сроком и не отдаёт
+   * для бессрочных. Поэтому: ISO-дата = факт, `neverExpires` = факт бессрочности,
+   * а `expiresAt === null && !neverExpires` = «ещё не спросили GitHub».
    */
   expiresAt: string | null;
+  /** Ключ бессрочный (GitHub не прислал заголовок истечения). */
+  neverExpires: boolean;
+  /** true, пока срок неизвестен или является нашей оценкой, а не данными GitHub. */
   expiresIsEstimate: boolean;
   daysLeft: number | null;
 }
@@ -31,9 +42,17 @@ export interface AuthStrategy {
   setToken(token: string, expiresAt?: string | null): Promise<void>;
   clear(): Promise<void>;
   describe(): Promise<AuthDescription>;
+  /**
+   * Получить факт о сроке из заголовка ответа GitHub
+   * (`github-authentication-token-expiration`); null-заголовок = ключ бессрочный.
+   */
+  noteTokenExpiration(headerValue: string | null): Promise<void>;
 }
 
 const DAY_MS = 86_400_000;
+const NEVER = 'never';
+/** Кэш последнего обработанного заголовка: не пишем в kv одно и то же на каждый запрос. */
+let lastNoted: string | null | undefined;
 
 export class PatAuthStrategy implements AuthStrategy {
   readonly id = 'pat';
@@ -52,32 +71,75 @@ export class PatAuthStrategy implements AuthStrategy {
     // доступ ко ВСЕМ репозиториям, что нарушает принцип минимальных прав.
     await kvSet(KV_KEYS.authPat, trimmed);
     await kvSet(KV_KEYS.authPatSavedAt, new Date().toISOString());
-    await kvSet(
-      KV_KEYS.authPatExpiresAt,
-      expiresAt ?? new Date(Date.now() + 365 * DAY_MS).toISOString(),
-    );
+    lastNoted = undefined;
+    if (expiresAt) {
+      // Срок указал сам пользователь — это факт, а не оценка.
+      await kvSet(KV_KEYS.authPatExpiresAt, expiresAt);
+      await kvSet(KV_KEYS.authPatExpiresIsEstimate, false);
+    } else {
+      // Срок НЕ выдумываем: до первого ответа GitHub он просто неизвестен.
+      await kvDel(KV_KEYS.authPatExpiresAt);
+      await kvSet(KV_KEYS.authPatExpiresIsEstimate, true);
+    }
+  }
+
+  async noteTokenExpiration(headerValue: string | null): Promise<void> {
+    if (!(await this.getToken())) return;
+    // Повторные запросы несут тот же заголовок: пишем в kv только при изменении.
+    if (lastNoted === headerValue) return;
+    lastNoted = headerValue;
+    if (headerValue) {
+      // Формат заголовка: «2027-05-01 00:00:00 UTC». Мусор игнорируем, а не роняем.
+      const parsed = Date.parse(headerValue.replace(' UTC', 'Z').replace(' ', 'T'));
+      if (Number.isNaN(parsed)) return;
+      await kvSet(KV_KEYS.authPatExpiresAt, new Date(parsed).toISOString());
+    } else {
+      await kvSet(KV_KEYS.authPatExpiresAt, NEVER);
+    }
+    await kvSet(KV_KEYS.authPatExpiresIsEstimate, false);
   }
 
   async clear(): Promise<void> {
+    lastNoted = undefined;
     await kvDel(KV_KEYS.authPat);
     await kvDel(KV_KEYS.authPatSavedAt);
     await kvDel(KV_KEYS.authPatExpiresAt);
+    await kvDel(KV_KEYS.authPatExpiresIsEstimate);
   }
 
   async describe(): Promise<AuthDescription> {
     const token = await this.getToken();
     const savedAt = (await kvGet<string>(KV_KEYS.authPatSavedAt)) ?? null;
-    const expiresAt = (await kvGet<string>(KV_KEYS.authPatExpiresAt)) ?? null;
+    const raw = (await kvGet<string>(KV_KEYS.authPatExpiresAt)) ?? null;
+    const isEstimate = (await kvGet<boolean>(KV_KEYS.authPatExpiresIsEstimate)) ?? true;
     if (!token) {
-      return { kind: 'none', savedAt: null, expiresAt: null, expiresIsEstimate: false, daysLeft: null };
+      return {
+        kind: 'none',
+        savedAt: null,
+        expiresAt: null,
+        neverExpires: false,
+        expiresIsEstimate: false,
+        daysLeft: null,
+      };
     }
-    const daysLeft = expiresAt ? Math.floor((Date.parse(expiresAt) - Date.now()) / DAY_MS) : null;
+    if (raw === NEVER) {
+      return {
+        kind: 'pat',
+        savedAt,
+        expiresAt: null,
+        neverExpires: true,
+        expiresIsEstimate: false,
+        daysLeft: null,
+      };
+    }
+    const daysLeft = raw ? Math.floor((Date.parse(raw) - Date.now()) / DAY_MS) : null;
     return {
       kind: 'pat',
       savedAt,
-      expiresAt,
-      // Если пользователь не указал точную дату — это наша оценка.
-      expiresIsEstimate: true,
+      expiresAt: raw,
+      neverExpires: false,
+      // Оценка только там, где её действительно никто не уточнял (старые установки).
+      expiresIsEstimate: isEstimate,
       daysLeft,
     };
   }
@@ -111,7 +173,16 @@ export const auth = {
 export async function wipeLocalData(): Promise<void> {
   await db.transaction(
     'rw',
-    [db.shopping, db.tasks, db.deadlines, db.members, db.syncMeta, db.httpCache, db.unresolved, db.activity],
+    [
+      db.shopping,
+      db.tasks,
+      db.deadlines,
+      db.members,
+      db.syncMeta,
+      db.httpCache,
+      db.unresolved,
+      db.activity,
+    ],
     async () => {
       await Promise.all([
         db.shopping.clear(),

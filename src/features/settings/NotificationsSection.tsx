@@ -11,7 +11,11 @@
  * канала объяснена словами, а не значком.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { notificationChannels, type NotificationChannel, type SupportReport } from '../../notifications/channels';
+import {
+  notificationChannels,
+  type NotificationChannel,
+  type SupportReport,
+} from '../../notifications/channels';
 import { Switch } from '../../design/ui';
 
 export default function NotificationsSection() {
@@ -56,8 +60,8 @@ export default function NotificationsSection() {
       <h2 className="section-title">Уведомления</h2>
 
       <p className="small muted" style={{ margin: 0, lineHeight: 1.55 }}>
-        Три независимых канала. Каждый включается своим переключателем; общий смысл —
-        чем выше уровень, тем громче напоминание и тем больше условий для его работы.
+        Три независимых канала. Каждый включается своим переключателем; общий смысл — чем выше
+        уровень, тем громче напоминание и тем больше условий для его работы.
       </p>
 
       {!ready ? (
@@ -126,8 +130,8 @@ function ChannelCard({
         )}
         {c.level === 2 && !unsupported && (
           <div className="tiny" style={{ color: 'var(--warn)' }}>
-            Включим после живой проверки на ваших телефонах (ЭТАП 3): пока мы не увидели
-            системное уведомление на заблокированном экране, обещать его работу нельзя.
+            Включим после живой проверки на ваших телефонах (ЭТАП 3): пока мы не увидели системное
+            уведомление на заблокированном экране, обещать его работу нельзя.
           </div>
         )}
       </div>
@@ -136,7 +140,12 @@ function ChannelCard({
         <span className="small" style={{ color: 'var(--text-2)' }}>
           {disabled ? 'выключено' : enabled ? 'включено' : 'выключено'}
         </span>
-        <Switch checked={enabled && !disabled} label={c.label} disabled={disabled} onChange={onToggle} />
+        <Switch
+          checked={enabled && !disabled}
+          label={c.label}
+          disabled={disabled}
+          onChange={onToggle}
+        />
       </div>
     </div>
   );

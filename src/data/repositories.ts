@@ -31,14 +31,14 @@ export const shoppingRepo = {
   /** Все незавершённые позиции, отсортированные по горизонту и дате. */
   async listActive(): Promise<ShoppingItem[]> {
     const all = await db.shopping.toArray();
-    return all
-      .filter((i) => !i.deletedAt && !i.done)
-      .sort(byHorizonThenNewest);
+    return all.filter((i) => !i.deletedAt && !i.done).sort(byHorizonThenNewest);
   },
 
   async listDone(): Promise<ShoppingItem[]> {
     const all = await db.shopping.toArray();
-    return all.filter((i) => !i.deletedAt && i.done).sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''));
+    return all
+      .filter((i) => !i.deletedAt && i.done)
+      .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''));
   },
 
   async countActive(): Promise<number> {
@@ -74,7 +74,10 @@ export const shoppingRepo = {
     return item;
   },
 
-  async update(id: string, patch: Partial<Omit<ShoppingItem, 'id' | 'rev' | 'createdAt' | 'kind'>>): Promise<void> {
+  async update(
+    id: string,
+    patch: Partial<Omit<ShoppingItem, 'id' | 'rev' | 'createdAt' | 'kind'>>,
+  ): Promise<void> {
     const cur = await db.shopping.get(id);
     if (!cur || cur.deletedAt) return;
     const s = stamp();
@@ -115,7 +118,13 @@ export const shoppingRepo = {
     const cur = await db.shopping.get(id);
     if (!cur) return;
     const s = stamp();
-    await db.shopping.put({ ...cur, deletedAt: s.updatedAt, rev: cur.rev + 1, updatedAt: s.updatedAt, updatedBy: s.updatedBy });
+    await db.shopping.put({
+      ...cur,
+      deletedAt: s.updatedAt,
+      rev: cur.rev + 1,
+      updatedAt: s.updatedAt,
+      updatedBy: s.updatedBy,
+    });
     await appendActivity('deleted', cur.title);
     notifyLocalChange();
   },
@@ -151,7 +160,14 @@ export const memberRepo = {
     }
     const now = new Date().toISOString();
     const member: Member = existing
-      ? { ...existing, name: s.name, color: s.color, rev: existing.rev + 1, updatedAt: now, updatedBy: s.deviceId }
+      ? {
+          ...existing,
+          name: s.name,
+          color: s.color,
+          rev: existing.rev + 1,
+          updatedAt: now,
+          updatedBy: s.deviceId,
+        }
       : {
           id: newId(),
           rev: 1,
@@ -194,7 +210,10 @@ export async function appendActivity(
   // Ограничиваем ленту, чтобы она не росла бесконечно.
   const count = await db.activity.count();
   if (count > 60) {
-    const old = await db.activity.orderBy('at').limit(count - 60).primaryKeys();
+    const old = await db.activity
+      .orderBy('at')
+      .limit(count - 60)
+      .primaryKeys();
     await db.activity.bulkDelete(old);
   }
 }

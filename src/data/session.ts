@@ -15,7 +15,14 @@ export interface Session {
 }
 
 export const PROFILE_COLORS = [
-  '#4f8cff', '#ff7a59', '#34c98e', '#b47cff', '#ffb020', '#ff6b9d', '#22b8cf', '#94a3b8',
+  '#4f8cff',
+  '#ff7a59',
+  '#34c98e',
+  '#b47cff',
+  '#ffb020',
+  '#ff6b9d',
+  '#22b8cf',
+  '#94a3b8',
 ] as const;
 
 let cached: Session | null = null;

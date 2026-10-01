@@ -22,20 +22,27 @@ const TABS: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/deadlines', label: 'Сроки', icon: 'calendar' },
 ];
 
-export default function App({ ready }: { ready: boolean }) {
+export default function App({
+  ready,
+  updatedFrom,
+}: {
+  ready: boolean;
+  updatedFrom?: string | null;
+}) {
   return (
     <HashRouter>
-      <ShellInner ready={ready} />
+      <ShellInner ready={ready} updatedFrom={updatedFrom ?? null} />
     </HashRouter>
   );
 }
 
-function ShellInner({ ready }: { ready: boolean }) {
+function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: string | null }) {
   const loc = useLocation();
   return (
     <>
       <div className="app-shell">
         <UpdateBanner />
+        <UpdatedNotice from={updatedFrom} />
         <TopBar />
         <Routes>
           <Route path="/" element={<HomeScreen ready={ready} />} />
@@ -113,20 +120,55 @@ function QuickAddFab() {
 
       <Sheet open={open} title="Что добавим?" onClose={() => setOpen(false)}>
         <div className="stack">
-          <button type="button" className="btn btn--primary btn--block" onClick={() => go('/shopping')}>
+          <button
+            type="button"
+            className="btn btn--primary btn--block"
+            onClick={() => go('/shopping')}
+          >
             <Icon name="cart" size={20} /> Добавить покупку
           </button>
           <button type="button" className="btn btn--block" onClick={() => go('/tasks')} disabled>
             <Icon name="check" size={20} /> Добавить дело
             <span className="badge">ЭТАП 7</span>
           </button>
-          <button type="button" className="btn btn--block" onClick={() => go('/deadlines')} disabled>
+          <button
+            type="button"
+            className="btn btn--block"
+            onClick={() => go('/deadlines')}
+            disabled
+          >
             <Icon name="calendar" size={20} /> Добавить срок
             <span className="badge">ЭТАП 6</span>
           </button>
         </div>
       </Sheet>
     </>
+  );
+}
+
+/**
+ * Видимая пометка post factum: «приложение обновилось с версии X».
+ *
+ * Молчаливое применение обновления при перезапуске — нормальное поведение PWA
+ * (ожидающий Service Worker активируется, когда старых клиентов не осталось), и владелец
+ * явно хочет «всё подтягивается само». Но обновление не должно быть НЕВИДИМЫМ: эта
+ * плашка показывает факт и версии, данных не трогает, закрывается одной кнопкой.
+ */
+function UpdatedNotice({ from }: { from: string | null }) {
+  const [hidden, setHidden] = useState(false);
+  if (!from || hidden) return null;
+  return (
+    <div style={{ padding: 'calc(var(--sat) + 8px) var(--sp-4) 0' }}>
+      <div className="banner">
+        <Icon name="refresh" size={18} />
+        <div className="grow">
+          Приложение обновилось с версии {from} до {__APP_VERSION__}. Данные и настройки сохранены.
+        </div>
+        <button type="button" className="btn btn--sm" onClick={() => setHidden(true)}>
+          Понятно
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -153,7 +195,13 @@ function StatusPill() {
   const s = useSyncState();
   const nav = useNavigate();
   const tone =
-    s.phase === 'error' ? 'err' : s.phase === 'synced' ? 'ok' : s.phase === 'offline' ? 'warn' : 'muted';
+    s.phase === 'error'
+      ? 'err'
+      : s.phase === 'synced'
+        ? 'ok'
+        : s.phase === 'offline'
+          ? 'warn'
+          : 'muted';
   const icon: IconName = s.online ? (s.phase === 'error' ? 'alert' : 'cloud') : 'cloud-off';
 
   const label =

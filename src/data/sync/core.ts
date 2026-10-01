@@ -17,13 +17,21 @@ import { SCHEMA_VERSION, emptyRemoteFile } from '../../domain/types';
 export interface LocalStorePort {
   read<T extends Syncable>(kind: EntityKind): Promise<EntityMap<T>>;
   readBase(kind: EntityKind): Promise<Record<string, number>>;
-  write<T extends Syncable>(kind: EntityKind, merged: EntityMap<T>, syncedAt: string): Promise<void>;
+  write<T extends Syncable>(
+    kind: EntityKind,
+    merged: EntityMap<T>,
+    syncedAt: string,
+  ): Promise<void>;
 }
 
 export interface RemoteStorePort {
   read<T extends Syncable>(kind: EntityKind): Promise<{ file: RemoteFile<T>; sha: string | null }>;
   /** Бросает ConflictError при рассогласовании sha. */
-  write<T extends Syncable>(kind: EntityKind, file: RemoteFile<T>, sha: string | null): Promise<string>;
+  write<T extends Syncable>(
+    kind: EntityKind,
+    file: RemoteFile<T>,
+    sha: string | null,
+  ): Promise<string>;
 }
 
 export class ConflictError extends Error {

@@ -35,15 +35,12 @@ export function Sheet({
   return (
     <>
       <div className="sheet-scrim" onClick={onClose} aria-hidden="true" />
-      <div
-        className="sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-      >
+      <div className="sheet" role="dialog" aria-modal="true" aria-label={title}>
         <div className="sheet-handle" aria-hidden="true" />
         <div className="row row--between" style={{ marginBottom: 'var(--sp-4)' }}>
-          <h2 style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, letterSpacing: '-0.02em' }}>{title}</h2>
+          <h2 style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, letterSpacing: '-0.02em' }}>
+            {title}
+          </h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Закрыть">
             <Icon name="close" />
           </button>
@@ -72,11 +69,25 @@ export function Banner({
   );
 }
 
-export function EmptyState({ emoji, title, hint, action }: { emoji: string; title: string; hint?: string; action?: ReactNode }) {
+export function EmptyState({
+  emoji,
+  title,
+  hint,
+  action,
+}: {
+  emoji: string;
+  title: string;
+  hint?: string;
+  action?: ReactNode;
+}) {
   return (
     <div className="empty">
-      <div className="empty-emoji" aria-hidden="true">{emoji}</div>
-      <div className="strong" style={{ fontSize: 'var(--fs-lg)', color: 'var(--text-2)' }}>{title}</div>
+      <div className="empty-emoji" aria-hidden="true">
+        {emoji}
+      </div>
+      <div className="strong" style={{ fontSize: 'var(--fs-lg)', color: 'var(--text-2)' }}>
+        {title}
+      </div>
       {hint && <div className="small">{hint}</div>}
       {action}
     </div>
@@ -141,20 +152,38 @@ export function Field({
     <label className="field">
       <span className="field-label">{label}</span>
       {children}
-      {error ? <span className="field-error">{error}</span> : hint ? <span className="field-hint">{hint}</span> : null}
+      {error ? (
+        <span className="field-error">{error}</span>
+      ) : hint ? (
+        <span className="field-hint">{hint}</span>
+      ) : null}
     </label>
   );
 }
 
 export type IconName =
-  | 'home' | 'cart' | 'check' | 'calendar' | 'gear' | 'plus' | 'close'
-  | 'cloud' | 'cloud-off' | 'refresh' | 'alert' | 'trash' | 'info' | 'shield' | 'bell';
+  | 'home'
+  | 'cart'
+  | 'check'
+  | 'calendar'
+  | 'gear'
+  | 'plus'
+  | 'close'
+  | 'cloud'
+  | 'cloud-off'
+  | 'refresh'
+  | 'alert'
+  | 'trash'
+  | 'info'
+  | 'shield'
+  | 'bell';
 
 const PATHS: Record<IconName, string> = {
   home: 'M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
   cart: 'M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6M9 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2m8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2',
   check: 'm4 12 5 5L20 6',
-  calendar: 'M7 3v3M17 3v3M3 9h18M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2',
+  calendar:
+    'M7 3v3M17 3v3M3 9h18M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2',
   // Шестерёнка: геометрия из набора Lucide (ISC): восемь симметричных зубцов и ровное
   // отверстие. Прежняя самописная дорога была несимметричной и на малом размере
   // читалась как «кривая» (замечание владельца, приёмка 0.1.2).

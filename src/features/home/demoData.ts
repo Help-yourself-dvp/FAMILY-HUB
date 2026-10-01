@@ -11,18 +11,54 @@ import { canonicalKey } from '../../domain/normalize';
 import type { ShoppingItem } from '../../domain/types';
 import { newId } from '../../shared/id';
 
-const DEMO: Array<Pick<ShoppingItem, 'title' | 'qty' | 'unit' | 'category' | 'horizon' | 'done'>> = [
-  { title: 'Молоко', qty: 2, unit: 'л', category: 'Молочное', horizon: 'now', done: false },
-  { title: 'Хлеб бородинский', qty: 1, unit: 'шт', category: 'Бакалея', horizon: 'now', done: false },
-  { title: 'Бананы', qty: 1.5, unit: 'кг', category: 'Овощи и фрукты', horizon: 'now', done: false },
-  { title: 'Яйца', qty: 10, unit: 'шт', category: 'Молочное', horizon: 'now', done: false },
-  { title: 'Зубная паста', qty: 1, unit: 'шт', category: 'Гигиена', horizon: 'now', done: false },
-  { title: 'Корм для кота', qty: 1, unit: 'уп', category: 'Для дома', horizon: 'soon', done: false },
-  { title: 'Фильтр для воды', qty: 1, unit: 'шт', category: 'Для дома', horizon: 'soon', done: false },
-  { title: 'Подарок на день рождения', qty: null, unit: null, category: 'Другое', horizon: 'someday', done: false },
-  { title: 'Сыр', qty: 300, unit: 'г', category: 'Молочное', horizon: 'now', done: true },
-  { title: 'Кофе', qty: 1, unit: 'уп', category: 'Напитки', horizon: 'now', done: true },
-];
+const DEMO: Array<Pick<ShoppingItem, 'title' | 'qty' | 'unit' | 'category' | 'horizon' | 'done'>> =
+  [
+    { title: 'Молоко', qty: 2, unit: 'л', category: 'Молочное', horizon: 'now', done: false },
+    {
+      title: 'Хлеб бородинский',
+      qty: 1,
+      unit: 'шт',
+      category: 'Бакалея',
+      horizon: 'now',
+      done: false,
+    },
+    {
+      title: 'Бананы',
+      qty: 1.5,
+      unit: 'кг',
+      category: 'Овощи и фрукты',
+      horizon: 'now',
+      done: false,
+    },
+    { title: 'Яйца', qty: 10, unit: 'шт', category: 'Молочное', horizon: 'now', done: false },
+    { title: 'Зубная паста', qty: 1, unit: 'шт', category: 'Гигиена', horizon: 'now', done: false },
+    {
+      title: 'Корм для кота',
+      qty: 1,
+      unit: 'уп',
+      category: 'Для дома',
+      horizon: 'soon',
+      done: false,
+    },
+    {
+      title: 'Фильтр для воды',
+      qty: 1,
+      unit: 'шт',
+      category: 'Для дома',
+      horizon: 'soon',
+      done: false,
+    },
+    {
+      title: 'Подарок на день рождения',
+      qty: null,
+      unit: null,
+      category: 'Другое',
+      horizon: 'someday',
+      done: false,
+    },
+    { title: 'Сыр', qty: 300, unit: 'г', category: 'Молочное', horizon: 'now', done: true },
+    { title: 'Кофе', qty: 1, unit: 'уп', category: 'Напитки', horizon: 'now', done: true },
+  ];
 
 export async function seedDemoData(): Promise<void> {
   if (await kvGet<boolean>('demo.seeded')) return;

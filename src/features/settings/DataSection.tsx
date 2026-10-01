@@ -7,16 +7,19 @@ import { restartSync } from '../../app/bootstrap';
 import { SCHEMA_VERSION } from '../../domain/types';
 import { Banner } from '../../design/ui';
 
-
 export default function DataSection() {
   const [msg, setMsg] = useState<string | null>(null);
-  const counts = useLiveQuery(async () => ({
-    shopping: await db.shopping.count(),
-    tasks: await db.tasks.count(),
-    deadlines: await db.deadlines.count(),
-    members: await db.members.count(),
-    activity: await db.activity.count(),
-  }), [], undefined);
+  const counts = useLiveQuery(
+    async () => ({
+      shopping: await db.shopping.count(),
+      tasks: await db.tasks.count(),
+      deadlines: await db.deadlines.count(),
+      members: await db.members.count(),
+      activity: await db.activity.count(),
+    }),
+    [],
+    undefined,
+  );
 
   const exportBackup = async () => {
     const payload = {
@@ -84,14 +87,22 @@ export default function DataSection() {
             Удалить демо-данные
           </button>
         </div>
-        <button type="button" className="btn btn--danger btn--block btn--sm" onClick={() => void wipe()}>
+        <button
+          type="button"
+          className="btn btn--danger btn--block btn--sm"
+          onClick={() => void wipe()}
+        >
           Удалить все локальные данные
         </button>
         <div className="tiny muted">
           Импорт резервной копии с валидацией схемы — ЭТАП 10 (§6.14). Экспорт работает уже сейчас:
           это независимый канал восстановления, если GitHub станет недоступен.
         </div>
-        <button type="button" className="btn btn--ghost btn--block btn--sm" onClick={() => void restartSync()}>
+        <button
+          type="button"
+          className="btn btn--ghost btn--block btn--sm"
+          onClick={() => void restartSync()}
+        >
           Переподключить синхронизацию
         </button>
       </div>

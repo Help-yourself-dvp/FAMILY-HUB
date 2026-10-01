@@ -20,13 +20,23 @@ import { initTheme, type ThemeMode } from './theme';
 import { bootstrap, registerServiceWorker, type AppConfig } from './bootstrap';
 import { seedDemoData } from '../features/home/demoData';
 import { wipeLocalData } from '../data/remote/authStrategy';
-import { kvDel, KV_KEYS } from '../data/db';
+import { kvDel, kvGet, kvSet, KV_KEYS } from '../data/db';
 
 export interface StartResult {
   config: AppConfig;
   theme: ThemeMode;
   /** Демо-данные были посажены в этом запуске (первый запуск на устройстве). */
   seededDemo: boolean;
+  /**
+   * Версия, с которой приложение обновилось, или null.
+   *
+   * Зачем: при закрытом приложении ожидающий Service Worker активируется без
+   * плашки согласия (старых клиентов нет), и новая версия применяется «молча» между
+   * запусками — владелец на приёмке 0.1.3 спросил, почему обновлений не видно.
+   * Молчаливое применение оставляем (это стандартное поведение PWA и желание владельца
+   * «всё подтягивается само»), но добавляем видимую пометку post factum.
+   */
+  updatedFrom: string | null;
 }
 
 /**
@@ -58,7 +68,12 @@ export async function startApp(): Promise<StartResult> {
   // 4. Service Worker — улучшение, а не условие запуска.
   await registerServiceWorker();
 
-  return { config, theme, seededDemo };
+  // 5. Пометка «обновлено с версии X» — если прошлый запуск был другой версией.
+  const prevVersion = (await kvGet<string>(KV_KEYS.lastSeenVersion)) ?? null;
+  const updatedFrom = prevVersion && prevVersion !== __APP_VERSION__ ? prevVersion : null;
+  await kvSet(KV_KEYS.lastSeenVersion, __APP_VERSION__);
+
+  return { config, theme, seededDemo, updatedFrom };
 }
 
 /**

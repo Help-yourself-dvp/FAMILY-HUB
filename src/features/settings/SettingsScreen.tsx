@@ -60,8 +60,8 @@ export default function SettingsScreen({ ready }: { ready: boolean }) {
             ))}
         </div>
         <div className="tiny muted">
-          Журнал намеренно содержит только структурные события: ни содержимого покупок,
-          ни токенов (§6.19).
+          Журнал намеренно содержит только структурные события: ни содержимого покупок, ни токенов
+          (§6.19).
         </div>
       </section>
 
@@ -71,9 +71,9 @@ export default function SettingsScreen({ ready }: { ready: boolean }) {
           <span className="strong small">О приложении</span>
         </div>
         <div className="tiny muted">
-          Family Hub — приватное семейное приложение. Данные справочные и не заменяют
-          специалиста (§6.22). Приложение не хранит номера документов, пароли и сканы:
-          для напоминания достаточно названия и даты (§6.21).
+          Family Hub — приватное семейное приложение. Данные справочные и не заменяют специалиста
+          (§6.22). Приложение не хранит номера документов, пароли и сканы: для напоминания
+          достаточно названия и даты (§6.21).
         </div>
         <div className="tiny mono muted">
           ЭТАП 1 — сквозной скелет: синхронизация покупок между устройствами.
@@ -84,7 +84,9 @@ export default function SettingsScreen({ ready }: { ready: boolean }) {
 
       <div style={{ height: 24 }} aria-hidden="true" />
       <div className="tiny muted" style={{ textAlign: 'center' }}>
-        {sync.rateRemaining !== null ? `Осталось запросов к GitHub в час: ${sync.rateRemaining}` : ''}
+        {sync.rateRemaining !== null
+          ? `Осталось запросов к GitHub в час: ${sync.rateRemaining}`
+          : ''}
       </div>
     </div>
   );

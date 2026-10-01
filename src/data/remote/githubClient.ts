@@ -7,6 +7,8 @@
  *
  * Никаких секретов в этом модуле нет: токен приходит из AuthStrategy (§2.5).
  */
+import { auth } from './authStrategy';
+
 export const GITHUB_API = 'https://api.github.com';
 const API_VERSION = '2022-11-28';
 
@@ -83,18 +85,11 @@ export class GitHubClient {
 
   private contentsUrl(path: string): string {
     const { owner, repo } = this.cfg;
-    const safe = path
-      .split('/')
-      .map(encodeURIComponent)
-      .join('/');
+    const safe = path.split('/').map(encodeURIComponent).join('/');
     return `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${safe}`;
   }
 
-  private async request(
-    url: string,
-    init: RequestInit,
-    token: string | null,
-  ): Promise<Response> {
+  private async request(url: string, init: RequestInit, token: string | null): Promise<Response> {
     const headers = new Headers(init.headers);
     headers.set('Accept', 'application/vnd.github+json');
     headers.set('X-GitHub-Api-Version', API_VERSION);
@@ -106,6 +101,14 @@ export class GitHubClient {
       res = await fetch(url, { ...init, headers });
     } catch (e) {
       throw new GitHubError(0, e instanceof Error ? e.message : 'network failure', 'network');
+    }
+
+    // Реальный срок действия ключа (0.1.4): GitHub отдаёт его в заголовке каждого
+    // авторизованного ответа, а для бессрочных ключей заголовка нет вовсе.
+    if (token) {
+      void auth
+        .current()
+        .noteTokenExpiration(res.headers.get('github-authentication-token-expiration'));
     }
 
     const limit = res.headers.get('x-ratelimit-limit');
@@ -137,12 +140,22 @@ export class GitHubClient {
     if (res.status === 409) throw new GitHubError(409, safe, 'conflict');
     if (res.status === 422) throw new GitHubError(422, safe, 'validation');
     if (res.status === 429)
-      throw new GitHubError(429, safe, 'secondary-limit', retryAfter ? Number(retryAfter) : undefined);
+      throw new GitHubError(
+        429,
+        safe,
+        'secondary-limit',
+        retryAfter ? Number(retryAfter) : undefined,
+      );
     if (res.status === 403) {
       const remaining = res.headers.get('x-ratelimit-remaining');
       if (remaining === '0') throw new GitHubError(403, safe, 'rate-limit');
       if (/abuse|secondary|rate limit/iu.test(safe))
-        throw new GitHubError(403, safe, 'secondary-limit', retryAfter ? Number(retryAfter) : undefined);
+        throw new GitHubError(
+          403,
+          safe,
+          'secondary-limit',
+          retryAfter ? Number(retryAfter) : undefined,
+        );
       throw new GitHubError(403, safe, 'forbidden');
     }
     throw new GitHubError(res.status, safe, 'unknown');
@@ -156,7 +169,9 @@ export class GitHubClient {
   async getFile(
     path: string,
     etag?: string | null,
-  ): Promise<{ status: 'ok'; file: RemoteFileResult } | { status: 'notModified' } | { status: 'missing' }> {
+  ): Promise<
+    { status: 'ok'; file: RemoteFileResult } | { status: 'notModified' } | { status: 'missing' }
+  > {
     const token = await this.getToken();
     if (!token) throw new GitHubError(0, 'нет токена доступа', 'no-token');
 
@@ -212,7 +227,11 @@ export class GitHubClient {
     };
     if (sha) body.sha = sha;
 
-    const res = await this.request(this.contentsUrl(path), { method: 'PUT', body: JSON.stringify(body) }, token);
+    const res = await this.request(
+      this.contentsUrl(path),
+      { method: 'PUT', body: JSON.stringify(body) },
+      token,
+    );
     if (!res.ok) await this.classify(res);
     const json = (await res.json()) as { content?: { sha?: string }; commit?: { sha?: string } };
     return json.content?.sha ?? json.commit?.sha ?? '';
@@ -228,7 +247,10 @@ export class GitHubClient {
     const scopesHeader = res.headers.get('x-oauth-scopes') ?? '';
     return {
       login: json.login ?? 'unknown',
-      scopes: scopesHeader.split(',').map((s) => s.trim()).filter(Boolean),
+      scopes: scopesHeader
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
     };
   }
 
@@ -240,6 +262,10 @@ export class GitHubClient {
     const res = await this.request(url, { method: 'GET' }, token);
     if (!res.ok) await this.classify(res);
     const json = (await res.json()) as { private?: boolean; default_branch?: string };
-    return { ok: true, private: json.private ?? false, defaultBranch: json.default_branch ?? 'main' };
+    return {
+      ok: true,
+      private: json.private ?? false,
+      defaultBranch: json.default_branch ?? 'main',
+    };
   }
 }

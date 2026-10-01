@@ -12,13 +12,7 @@
  * Дебаунс записи (§2.2): не чаще одного коммита в DEBOUNCE_MS на устройство —
  * защита от abuse-лимитов GitHub и от перерасхода минут Actions (факт F3).
  */
-import {
-  baseSnapshot,
-  db,
-  httpCacheRowKey,
-  localEntities,
-  writeMerged,
-} from './localStore';
+import { baseSnapshot, db, httpCacheRowKey, localEntities, writeMerged } from './localStore';
 import { GitHubRemoteStore } from './remoteStore';
 import { ConflictError, syncKind, type LocalStorePort, type RemoteStorePort } from './core';
 export type { LocalStorePort, RemoteStorePort } from './core';
@@ -47,11 +41,14 @@ export function setPorts(local: LocalStorePort, remote: RemoteStorePort | null):
   remotePort = remote;
 }
 
-export function createPorts(getToken: () => Promise<string | null>, cfg: {
-  owner: string;
-  repo: string;
-  branch: string;
-}): { local: LocalStorePort; remote: RemoteStorePort } {
+export function createPorts(
+  getToken: () => Promise<string | null>,
+  cfg: {
+    owner: string;
+    repo: string;
+    branch: string;
+  },
+): { local: LocalStorePort; remote: RemoteStorePort } {
   return {
     local: {
       read: <T extends Syncable>(kind: EntityKind) => localEntities<T>(kind),
@@ -108,7 +105,8 @@ export async function syncNow(_reason: string): Promise<void> {
     try {
       const r = await syncKind<Syncable>(kind, localPort, remotePort, {
         nowIso: () => new Date().toISOString(),
-        onRetry: (k, attempt) => log.emit({ type: 'sync:retry', kind: k, attempt, reason: 'conflict' }),
+        onRetry: (k, attempt) =>
+          log.emit({ type: 'sync:retry', kind: k, attempt, reason: 'conflict' }),
         onConflict: (k, count) => log.emit({ type: 'sync:conflict', kind: k, count }),
       });
       pushed += r.pushed;
@@ -149,7 +147,7 @@ export async function syncNow(_reason: string): Promise<void> {
 
 function errorCode(e: unknown): string {
   const anyErr = e as { code?: string; status?: number; name?: string };
-  return anyErr?.code ?? (anyErr?.status ? `http-${anyErr.status}` : anyErr?.name ?? 'unknown');
+  return anyErr?.code ?? (anyErr?.status ? `http-${anyErr.status}` : (anyErr?.name ?? 'unknown'));
 }
 
 /** Локальное изменение → отложенная синхронизация. */

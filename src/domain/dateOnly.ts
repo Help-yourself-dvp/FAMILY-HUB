@@ -25,7 +25,8 @@ export function isDateOnly(value: unknown): value is DateOnly {
 }
 
 export function parseDateOnly(value: string): DateOnly {
-  if (!isDateOnly(value)) throw new Error(`Некорректная дата (ожидается YYYY-MM-DD): ${String(value)}`);
+  if (!isDateOnly(value))
+    throw new Error(`Некорректная дата (ожидается YYYY-MM-DD): ${String(value)}`);
   return value;
 }
 

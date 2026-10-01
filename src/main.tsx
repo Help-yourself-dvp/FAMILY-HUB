@@ -13,7 +13,10 @@ function FatalScreen({ error, onReset }: { error: string; onReset: () => void })
   // Честная подсказка о самой частой внешней причине: браузер запретил локальное
   // хранилище (приватный режим, «блокировать файлы cookie», очистка хранилища).
   const storageBlocked =
-    lower.includes('indexeddb') || lower.includes('storage') || lower.includes('idb') || lower.includes('openDatabase');
+    lower.includes('indexeddb') ||
+    lower.includes('storage') ||
+    lower.includes('idb') ||
+    lower.includes('openDatabase');
 
   return (
     <div className="app-shell">
@@ -34,7 +37,11 @@ function FatalScreen({ error, onReset }: { error: string; onReset: () => void })
         ) : null}
 
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn--primary" onClick={() => window.location.reload()}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => window.location.reload()}
+          >
             Перезагрузить
           </button>
           {confirming ? (
@@ -68,6 +75,7 @@ function FatalScreen({ error, onReset }: { error: string; onReset: () => void })
 
 function Root() {
   const [ready, setReady] = useState(false);
+  const [updatedFrom, setUpdatedFrom] = useState<string | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
 
   useEffect(() => {
@@ -77,8 +85,11 @@ function Root() {
         // Порядок инициализации определён в src/app/startApp.ts и покрыт тестом
         // tests/boot.test.ts. Не переносить шаги в компонент: сессия обязана быть
         // загружена до любой записи в данные (дефект первого запуска 2026-10-01).
-        await startApp();
-        if (!cancelled) setReady(true);
+        const res = await startApp();
+        if (!cancelled) {
+          setUpdatedFrom(res.updatedFrom);
+          setReady(true);
+        }
       } catch (e) {
         if (!cancelled) setFatal(e instanceof Error ? `${e.message}\n${e.stack ?? ''}` : String(e));
       }
@@ -99,7 +110,7 @@ function Root() {
     );
   }
 
-  return <App ready={ready} />;
+  return <App ready={ready} updatedFrom={updatedFrom} />;
 }
 
 const container = document.getElementById('root');
