@@ -1,0 +1,54 @@
+# Тонкий workflow (Universal Guide §6.1): инфраструктура минимальна, весь изменяемый
+# код живёт обычными файлами. Запускается пушем, а не человеком.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Versions in sync (version.json is the single source)
+        run: npm run verify:version
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc -b --pretty false
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+        env:
+          BASE_PATH: /FAMILY-HUB/
+
+      - name: Artifact must be non-empty (Definition of Done, §10)
+        run: |
+          test -s dist/index.html
+          test -s dist/sw.js
+          test -s dist/manifest.webmanifest
+          test -s dist/app-shell.json
+          echo "dist size:"; du -sh dist
