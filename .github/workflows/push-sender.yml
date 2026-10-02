@@ -4,6 +4,8 @@ name: Push reminders
 # живёт в ПУБЛИЧНОМ репозитории — платные минуты приватного хранилища не тратятся.
 # Раз в 30 минут: ступени сроков, сработавшие сегодня (Europe/Moscow), уходят Web
 # Push на подписки устройств; каждое напоминание — один раз (маркеры push-sent).
+# Ручной Run workflow — отдельный push-тест без сроков/маркеров; новое сообщение
+# на каждом запуске, только по явному действию владельца. Main этим патчем не меняется.
 on:
   schedule:
     # Сохраняем интервал 30 минут, но уходим с нагруженных 00/30.
@@ -26,8 +28,9 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Отправить напоминания
+      - name: Напоминания по расписанию или ручная проверка push
         env:
           FAMILY_REPO_TOKEN: ${{ secrets.FAMILY_REPO_TOKEN }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          FH_PUSH_MODE: ${{ github.event_name == 'workflow_dispatch' && 'test' || 'reminders' }}
         run: node scripts/push-sender.mjs

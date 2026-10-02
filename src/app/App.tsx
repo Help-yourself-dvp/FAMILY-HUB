@@ -63,7 +63,20 @@ function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: strin
               }
             />
             <Route path="/tasks" element={<TasksScreen />} />
-            <Route path="/deadlines" element={<DeadlinesScreen ready={ready} />} />
+            <Route
+              path="/deadlines"
+              element={
+                <DeadlinesScreen
+                  ready={ready}
+                  composeKey={
+                    loc.pathname === '/deadlines' &&
+                    (loc.state as { compose?: boolean } | null)?.compose === true
+                      ? loc.key
+                      : null
+                  }
+                />
+              }
+            />
             <Route path="/settings" element={<SettingsScreen ready={ready} />} />
             <Route path="*" element={<HomeScreen ready={ready} />} />
           </Routes>

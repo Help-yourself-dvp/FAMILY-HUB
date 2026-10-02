@@ -69,7 +69,7 @@ function worker(storage?: Pick<IDBFactory, 'open'>) {
     handlers.get(name)!({ ...fields, waitUntil: (task: Promise<unknown>) => tasks.push(task) });
     await Promise.all(tasks);
   };
-  const push = () =>
+  const push = (patch: Record<string, unknown> = {}) =>
     fire('push', {
       data: {
         json: () => ({
@@ -77,6 +77,7 @@ function worker(storage?: Pick<IDBFactory, 'open'>) {
           body: 'Вымышленный текст',
           route: '#/deadlines',
           tag: PUSH_TAG,
+          ...patch,
         }),
       },
     });
@@ -174,6 +175,20 @@ describe('источник уведомления и переход по наж�
       lastShownAt: '2026-10-02T09:00:00.000Z',
     });
     expect(await kvGet(`remind.push.${PUSH_TAG}`)).toBe(true);
+  });
+
+  it('проверочный push приходит независимо от foreground и не пишет маркер срока', async () => {
+    await db.deadlines.put(deadline());
+    expect(await runReminderCheck()).toBe(1);
+    const sw = worker();
+    const tag = 'fh-push-test-fixture';
+    await sw.push({ kind: 'push-test', tag, route: '#/settings' });
+    expect(sw.show).toHaveBeenCalledOnce();
+    expect(sw.show.mock.calls[0]?.[1]).toMatchObject({
+      data: { source: 'web-push', isTest: true, route: '#/settings' },
+    });
+    expect(await kvGet(`remind.push.${tag}`)).toBeUndefined();
+    expect((await readDeliveryReceipt('web-push')).receivedCount).toBe(1);
   });
 
   it('неуспешный показ push не отмечается отправленным на устройстве', async () => {

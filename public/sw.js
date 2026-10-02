@@ -155,6 +155,7 @@ self.addEventListener('push', (event) => {
   const n = data.notification && typeof data.notification === 'object' ? data.notification : data;
   const title = typeof n.title === 'string' && n.title ? n.title : 'Family Hub';
   const tag = n.tag || data.tag || data.id;
+  const isTest = data.kind === 'push-test';
   event.waitUntil(
     (async () => {
       try {
@@ -162,7 +163,7 @@ self.addEventListener('push', (event) => {
           body: typeof n.body === 'string' ? n.body : '',
           tag: typeof tag === 'string' ? tag : undefined,
           lang: 'ru',
-          data: { route: n.navigate || data.route || '#/', source: 'web-push' },
+          data: { route: n.navigate || data.route || '#/', source: 'web-push', isTest },
         });
       } catch (error) {
         await recordNotificationDelivery('web-push', false);
@@ -170,7 +171,8 @@ self.addEventListener('push', (event) => {
       }
       // Совпадает с маркером sender: ID.дата.ступень.json. При открытии
       // приложения не повторяем уже обработанный здесь push локальным каналом.
-      const marker = typeof tag === 'string' && tag.length <= 250 ? 'remind.push.' + tag : null;
+      const marker =
+        !isTest && typeof tag === 'string' && tag.length <= 250 ? 'remind.push.' + tag : null;
       await recordNotificationDelivery('web-push', true, marker);
     })(),
   );

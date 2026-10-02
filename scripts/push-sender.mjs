@@ -19,11 +19,15 @@
  * Секреты (добавляет владелец в Settings → Secrets and variables → Actions):
  *  FAMILY_REPO_TOKEN   — семейный ключ GitHub с правом Contents RW на репо данных
  *  VAPID_PRIVATE_KEY   — приватный ключ VAPID (публичный лежит в public/vapid.json)
- * Без секретов скрипт честно выходит с кодом 0 и сообщением в логе — workflow не
- * краснеет до настройки.
+ * Без секретов обычный цикл предупреждает и выходит с кодом 0 до настройки.
+ * Явная ручная проверка без конфигурации завершается ошибкой, не ложным успехом.
+ * FH_PUSH_MODE=test: отдельная проверка, только GET подписок + send; без сроков,
+ * чтения/записи маркеров и удаления подписок. Cron использует reminders.
  */
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
+import { randomUUID } from 'node:crypto';
+import { sendPushTest } from './push-test.mjs';
 import { deadlineRows } from './push-sender-data.mjs';
 
 const API = 'https://api.github.com';
@@ -33,6 +37,7 @@ const BRANCH = process.env.FH_DATA_BRANCH || 'main';
 const TOKEN = process.env.FAMILY_REPO_TOKEN || '';
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || '';
 const TZ = 'Europe/Moscow';
+const TEST_MODE = process.env.FH_PUSH_MODE === 'test';
 
 function log(...args) {
   console.log('[push]', ...args);
@@ -124,13 +129,32 @@ function textFor(d, hit) {
   return `«${d.title}»: осталось ${hit} дн. (до ${d.dueDate}).`;
 }
 
+async function loadSubscriptions() {
+  const subsDir = await getJsonFile('data/push');
+  const subs = [];
+  if (Array.isArray(subsDir)) {
+    for (const f of subsDir) {
+      if (!f.name.endsWith('.json')) continue;
+      const doc = await getJsonFile(`data/push/${f.name}`);
+      if (doc && !doc.revoked && doc.subscription?.endpoint) {
+        subs.push({ path: `data/push/${f.name}`, sha: f.sha, sub: doc.subscription });
+      }
+    }
+  }
+  return subs;
+}
+
 /* ------------------------------- основной цикл ---------------------------- */
 async function main() {
   if (!TOKEN || !VAPID_PRIVATE) {
     log(
-      'не настроено: владелец должен добавить секреты FAMILY_REPO_TOKEN и VAPID_PRIVATE_KEY (Settings → Secrets and variables → Actions). Выход без ошибки.',
+      'не настроено: владелец должен добавить секреты FAMILY_REPO_TOKEN и VAPID_PRIVATE_KEY (Settings → Secrets and variables → Actions). Отправка невозможна.',
     );
-    annotation('warning', 'Отправка пропущена: не заданы FAMILY_REPO_TOKEN или VAPID_PRIVATE_KEY.');
+    annotation(
+      TEST_MODE ? 'error' : 'warning',
+      'Отправка пропущена: не заданы FAMILY_REPO_TOKEN или VAPID_PRIVATE_KEY.',
+    );
+    if (TEST_MODE) process.exitCode = 1;
     return;
   }
 
@@ -146,8 +170,9 @@ async function main() {
     }
   }
   if (!vapidPublic) {
-    log('нет публичного ключа VAPID (public/vapid.json или env) — выход без ошибки');
-    annotation('warning', 'Отправка пропущена: нет публичного ключа VAPID.');
+    log('нет публичного ключа VAPID (public/vapid.json или env) — отправка невозможна');
+    annotation(TEST_MODE ? 'error' : 'warning', 'Отправка пропущена: нет публичного ключа VAPID.');
+    if (TEST_MODE) process.exitCode = 1;
     return;
   }
   webpush.setVapidDetails(
@@ -155,6 +180,24 @@ async function main() {
     vapidPublic,
     VAPID_PRIVATE,
   );
+
+  if (TEST_MODE) {
+    // Только отдельный тест. НЕТ чтения сроков, push-sent и записи/удаления файлов.
+    const subs = await loadSubscriptions();
+    const id = `${process.env.GITHUB_RUN_ID || 'manual'}.${randomUUID()}`;
+    const result = await sendPushTest(
+      subs,
+      (sub, payload, options) => webpush.sendNotification(sub, payload, options),
+      id,
+    );
+    const failed = result.subscriptions === 0 || result.failed > 0;
+    annotation(
+      failed ? 'error' : 'notice',
+      `Проверочный push: подписок ${result.subscriptions}, принято провайдером ${result.accepted}, ошибок ${result.failed}, HTTP ${JSON.stringify(result.errorsByStatus)}. Маркеры сроков не изменены. Получение проверяйте на устройстве.`,
+    );
+    if (failed) process.exitCode = 1;
+    return;
+  }
 
   const deadlines = deadlineRows(await getJsonFile('data/deadlines.json'));
   if (!deadlines) {
@@ -170,17 +213,7 @@ async function main() {
   }
   const from = todayMoscow();
 
-  const subsDir = await getJsonFile('data/push');
-  const subs = [];
-  if (Array.isArray(subsDir)) {
-    for (const f of subsDir) {
-      if (!f.name.endsWith('.json')) continue;
-      const doc = await getJsonFile(`data/push/${f.name}`);
-      if (doc && !doc.revoked && doc.subscription?.endpoint) {
-        subs.push({ path: `data/push/${f.name}`, sha: f.sha, sub: doc.subscription });
-      }
-    }
-  }
+  const subs = await loadSubscriptions();
   if (subs.length === 0) {
     log('подписок нет: включите «Push при закрытом приложении» в Настройки → Уведомления');
     annotation('notice', 'Отправка пропущена: нет активных подписок устройств.');
@@ -253,7 +286,8 @@ main().catch((e) => {
       ? 'dependency-missing'
       : 'cycle-error';
   // Ошибка конфигурации/прав — не преходящая потеря сети: не выдаём её за зелёный успех.
-  const fatal = code === 'dependency-missing' || code === 'HTTP 401' || code === 'HTTP 403';
+  const fatal =
+    TEST_MODE || code === 'dependency-missing' || code === 'HTTP 401' || code === 'HTTP 403';
   annotation(fatal ? 'error' : 'warning', `Цикл отправки не завершён (${code}).`);
   if (fatal) process.exitCode = 1;
 });

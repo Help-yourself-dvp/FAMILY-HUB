@@ -38,11 +38,23 @@ const REMINDER_STEPS: Array<{ days: number; label: string }> = [
   { days: 0, label: 'в день срока' },
 ];
 
-export default function DeadlinesScreen({ ready }: { ready: boolean }) {
+export default function DeadlinesScreen({
+  ready,
+  composeKey = null,
+}: {
+  ready: boolean;
+  /** Одноразовый запрос из круглого +, как в Покупках; сохраняется до готовности экрана. */
+  composeKey?: string | null;
+}) {
   const rows = useLiveQuery(() => db.deadlines.toArray(), [], undefined);
   const sync = useSyncState();
   const [editing, setEditing] = useState<Deadline | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [seenComposeKey, setSeenComposeKey] = useState<string | null>(null);
+  if (composeKey && composeKey !== seenComposeKey) {
+    setSeenComposeKey(composeKey);
+    setComposeOpen(true);
+  }
   const [calendarBusy, setCalendarBusy] = useState(false);
   const [calendarNotice, setCalendarNotice] = useState<{ tone: 'ok' | 'err'; text: string } | null>(
     null,
