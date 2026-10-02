@@ -13,6 +13,7 @@ import {
   readDeliveryReceipt,
 } from '../src/notifications/deliveryState';
 import { runReminderCheck } from '../src/notifications/remindersWatch';
+import { notificationAppearance } from '../src/notifications/appearance';
 import type { Deadline } from '../src/domain/types';
 
 const SCOPE = 'https://fixture.example/FAMILY-HUB/';
@@ -121,7 +122,9 @@ beforeEach(async () => {
   vi.stubGlobal('navigator', {
     userAgent: 'fixture-browser',
     serviceWorker: {
-      getRegistration: vi.fn().mockResolvedValue({ showNotification: foregroundShow }),
+      getRegistration: vi
+        .fn()
+        .mockResolvedValue({ scope: SCOPE, showNotification: foregroundShow }),
     },
   });
 });
@@ -133,6 +136,46 @@ afterEach(() => {
 });
 
 describe('источник уведомления и переход по нажатию', () => {
+  it('foreground получает логотип/статусный значок владельца из scope, сохраняет route', async () => {
+    await notificationChannels.byId('local-foreground')!.deliver([
+      {
+        id: 'fixture-branded',
+        title: 'Family Hub: срок',
+        body: 'Учебный текст',
+        route: '#/deadlines',
+        createdAt: '2026-10-02T09:00:00Z',
+      },
+    ]);
+    expect(foregroundShow.mock.calls[0]?.[1]).toMatchObject(notificationAppearance(SCOPE));
+    expect(foregroundShow.mock.calls[0]?.[1]).toMatchObject({ data: { route: '#/deadlines' } });
+  });
+
+  it('push не подставляет чужой icon из payload и получает собственное оформление', async () => {
+    const sw = worker();
+    await sw.push({
+      icon: 'https://unrelated.invalid/icon.png',
+      badge: 'https://unrelated.invalid/badge.png',
+    });
+    expect(sw.show.mock.calls[0]?.[1]).toMatchObject(notificationAppearance(SCOPE));
+    expect(sw.show.mock.calls[0]?.[1]).toMatchObject({
+      data: { source: 'web-push', route: '#/deadlines' },
+    });
+  });
+
+  it('PBS оформляется тем же значком, что push/foreground', async () => {
+    await db.deadlines.put(deadline());
+    const sw = worker();
+    await sw.fire('periodicsync', { tag: 'fh-reminders' });
+    expect(sw.show.mock.calls[0]?.[1]).toMatchObject(notificationAppearance(SCOPE));
+  });
+
+  it('ресурсы оформления не привязаны жёстко к GitHub Pages и не имеют внешнего origin', () => {
+    expect(notificationAppearance('https://fixture.example/').icon).toBe(
+      'https://fixture.example/icons/icon-192.png',
+    );
+    expect(notificationAppearance(SCOPE).badge).toBe(`${SCOPE}icons/notification-badge-96.png`);
+  });
+
   it('PING подтверждает возможности активного SW, без данных уведомлений', async () => {
     const sw = worker();
     const postMessage = vi.fn();

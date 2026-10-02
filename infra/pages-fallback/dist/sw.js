@@ -141,6 +141,18 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+/** Логотип владельца и производная одноцветная маска, только свой origin/scope.
+ * Те же пути в src/notifications/appearance.ts; совпадение покрыто тестами.
+ * ОС может оставить атрибуцию Chrome/скрыть содержимое на lock screen. */
+function notificationAppearance() {
+  return {
+    icon: new URL('icons/icon-192.png', self.registration.scope).href,
+    badge: new URL('icons/notification-badge-96.png', self.registration.scope).href,
+    lang: 'ru',
+    dir: 'ltr',
+  };
+}
+
 /* Настоящий Web Push: может сработать без открытой страницы.
    Служебное подтверждение содержит только счётчики и время, НЕ текст уведомления.
    Ошибка IndexedDB не должна помешать показу. */
@@ -160,9 +172,9 @@ self.addEventListener('push', (event) => {
     (async () => {
       try {
         await self.registration.showNotification(title, {
+          ...notificationAppearance(),
           body: typeof n.body === 'string' ? n.body : '',
           tag: typeof tag === 'string' ? tag : undefined,
-          lang: 'ru',
           data: { route: n.navigate || data.route || '#/', source: 'web-push', isTest },
         });
       } catch (error) {
@@ -327,9 +339,9 @@ async function checkRemindersOffline() {
               : '«' + d.title + '»: осталось ' + hit + ' дн. (до ' + d.dueDate + ').';
         try {
           await self.registration.showNotification('Family Hub: срок', {
+            ...notificationAppearance(),
             body,
             tag: marker,
-            lang: 'ru',
             data: { route: '#/deadlines', source: 'periodic-background' },
           });
         } catch (error) {

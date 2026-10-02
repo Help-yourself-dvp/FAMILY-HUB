@@ -1,9 +1,9 @@
 {
-  "buildId": "0.3.8-muqwttwe",
-  "version": "0.3.8",
-  "generatedAt": "2026-10-02T11:59:00.254Z",
+  "buildId": "0.3.9-muqxzmfh",
+  "version": "0.3.9",
+  "generatedAt": "2026-10-02T12:31:30.125Z",
   "precache": [
-    "assets/index-DhxMt26H.js",
+    "assets/index-LXPHH7u9.js",
     "assets/index-Nfgw5g_S.css",
     "icons/apple-touch-icon.png",
     "icons/favicon-32.png",
@@ -11,6 +11,7 @@
     "icons/icon-512.png",
     "icons/maskable-512.png",
     "icons/monochrome-512.png",
+    "icons/notification-badge-96.png",
     "index.html",
     "manifest.webmanifest",
     "vapid.json"

@@ -13,6 +13,7 @@
 import { db, kvGet, kvSet, KV_KEYS } from '../data/db';
 import { calendarExportSummary, downloadIcs, exportableDeadlines } from './ics';
 import { recordLocalDelivery } from './deliveryState';
+import { notificationAppearance } from './appearance';
 import { log } from '../shared/log';
 import { loadSession } from '../data/session';
 import { auth } from '../data/remote/authStrategy';
@@ -144,9 +145,9 @@ class LocalForegroundChannel implements NotificationChannel {
         const reg = await navigator.serviceWorker?.getRegistration();
         if (reg && Notification.permission === 'granted') {
           await reg.showNotification(e.title, {
+            ...notificationAppearance(reg.scope),
             body: e.body,
             tag: e.id,
-            lang: 'ru',
             data: { route: e.route ?? '#/', source: 'local-foreground' },
           });
           await recordLocalDelivery();
