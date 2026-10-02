@@ -150,7 +150,11 @@ async function main() {
     annotation('warning', 'Отправка пропущена: нет публичного ключа VAPID.');
     return;
   }
-  webpush.setVapidDetails('mailto:family-hub@example.invalid', vapidPublic, VAPID_PRIVATE);
+  webpush.setVapidDetails(
+    'https://github.com/Help-yourself-dvp/FAMILY-HUB',
+    vapidPublic,
+    VAPID_PRIVATE,
+  );
 
   const deadlines = deadlineRows(await getJsonFile('data/deadlines.json'));
   if (!deadlines) {
@@ -206,7 +210,9 @@ async function main() {
       let okCount = 0;
       for (const s of subs) {
         try {
-          await webpush.sendNotification(s.sub, payload, { TTL: 24 * 3600 });
+          // Редкие важные сроки, не покупки: просим высокий приоритет доставки.
+          // ОС/сеть всё равно могут задержать показ; подтверждение проверяем на устройстве.
+          await webpush.sendNotification(s.sub, payload, { TTL: 24 * 3600, urgency: 'high' });
           okCount += 1;
         } catch (e) {
           failed += 1;
@@ -246,5 +252,8 @@ main().catch((e) => {
     : e?.code === 'ERR_MODULE_NOT_FOUND'
       ? 'dependency-missing'
       : 'cycle-error';
-  annotation('warning', `Цикл отправки не завершён (${code}); повтор в следующем запуске.`);
+  // Ошибка конфигурации/прав — не преходящая потеря сети: не выдаём её за зелёный успех.
+  const fatal = code === 'dependency-missing' || code === 'HTTP 401' || code === 'HTTP 403';
+  annotation(fatal ? 'error' : 'warning', `Цикл отправки не завершён (${code}).`);
+  if (fatal) process.exitCode = 1;
 });

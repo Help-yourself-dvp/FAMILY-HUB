@@ -83,7 +83,9 @@ self.addEventListener('message', (event) => {
   const data = event.data;
   if (data && data.type === 'SKIP_WAITING') self.skipWaiting();
   if (data && data.type === 'PING') {
-    event.source && event.source.postMessage({ type: 'PONG', at: new Date().toISOString() });
+    const reply = { type: 'PONG', at: new Date().toISOString(), notificationsRevision: 2 };
+    if (event.ports && event.ports[0]) event.ports[0].postMessage(reply);
+    else if (event.source) event.source.postMessage(reply);
   }
 });
 
@@ -139,42 +141,83 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-/* Web Push (ТЗ §11). Обработчик зарегистрирован сейчас, но реальная доставка
-   включается на ЭТАПЕ 3 после проверки на устройствах.
-   iOS 18.4+ поддерживает Declarative Web Push: при наличии ключа "web_push": 8030
-   система показывает уведомление сама, не пробуждая SW (факт F8 в RESEARCH.md).
-   Поэтому в payload будем класть обе формы — каждый браузер возьмёт свою.
-   ВАЖНО: silent push на iOS запрещён — каждое сообщение обязано быть видимым. */
+/* Настоящий Web Push: может сработать без открытой страницы.
+   Служебное подтверждение содержит только счётчики и время, НЕ текст уведомления.
+   Ошибка IndexedDB не должна помешать показу. */
 self.addEventListener('push', (event) => {
   let data = {};
   try {
-    data = event.data ? event.data.json() : {};
+    const parsed = event.data ? event.data.json() : {};
+    data = parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     data = { title: 'Family Hub', body: event.data ? event.data.text() : '' };
   }
-  const n = data.notification || data;
-  const title = n.title || 'Family Hub';
+  const n = data.notification && typeof data.notification === 'object' ? data.notification : data;
+  const title = typeof n.title === 'string' && n.title ? n.title : 'Family Hub';
+  const tag = n.tag || data.tag || data.id;
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body: n.body || '',
-      tag: n.tag || data.id || undefined,
-      lang: 'ru',
-      data: { route: n.navigate || data.route || './' },
-    }),
+    (async () => {
+      try {
+        await self.registration.showNotification(title, {
+          body: typeof n.body === 'string' ? n.body : '',
+          tag: typeof tag === 'string' ? tag : undefined,
+          lang: 'ru',
+          data: { route: n.navigate || data.route || '#/', source: 'web-push' },
+        });
+      } catch (error) {
+        await recordNotificationDelivery('web-push', false);
+        throw error;
+      }
+      // Совпадает с маркером sender: ID.дата.ступень.json. При открытии
+      // приложения не повторяем уже обработанный здесь push локальным каналом.
+      const marker = typeof tag === 'string' && tag.length <= 250 ? 'remind.push.' + tag : null;
+      await recordNotificationDelivery('web-push', true, marker);
+    })(),
   );
 });
 
+/** Разрешены только наши hash-разделы, а не сторонний URL из payload. */
+function notificationTarget(route) {
+  const base = new URL(self.registration.scope);
+  const fallback = new URL('#/', base).href;
+  try {
+    const target = new URL(typeof route === 'string' ? route : '#/', base);
+    const section = target.hash.slice(1).split('?')[0];
+    const insideApp =
+      target.origin === base.origin &&
+      (target.pathname === base.pathname || target.pathname === base.pathname + 'index.html');
+    const allowed = ['', '/', '/shopping', '/tasks', '/deadlines', '/settings'].includes(section);
+    return insideApp && allowed ? target.href : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const route = (event.notification.data && event.notification.data.route) || './';
-  const target = new URL(route, self.registration.scope).href;
+  const route = event.notification.data && event.notification.data.route;
+  const target = notificationTarget(route);
   event.waitUntil(
     (async () => {
+      const base = new URL(self.registration.scope);
       const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      for (const c of all) {
-        if ('focus' in c) {
-          await c.navigate(target);
-          return c.focus();
+      for (const client of all) {
+        try {
+          const url = new URL(client.url);
+          // Не перехватываем вкладку другого PWA на том же github.io origin.
+          if (
+            url.origin !== base.origin ||
+            (url.pathname !== base.pathname && url.pathname !== base.pathname + 'index.html') ||
+            typeof client.focus !== 'function'
+          )
+            continue;
+          if (client.url !== target) {
+            if (typeof client.navigate !== 'function') continue;
+            if (!(await client.navigate(target))) continue;
+          }
+          return await client.focus();
+        } catch {
+          // Закрытая вкладка / недоступная навигация: пробуем другую или новую.
         }
       }
       if (self.clients.openWindow) return self.clients.openWindow(target);
@@ -254,8 +297,10 @@ async function checkRemindersOffline() {
     const deadlines = await idbGetAll(db, 'deadlines');
     const kvRows = await idbGetAll(db, 'kv');
     const marked = new Set();
+    const deviceId = kvRows.find((row) => row.key === 'device.id')?.value;
     for (const row of kvRows) {
-      if (typeof row.key === 'string' && row.key.startsWith('remind.sw.')) marked.add(row.key);
+      if (typeof row.key === 'string' && row.key.startsWith('remind.') && row.value === true)
+        marked.add(row.key);
     }
     const from = moscowToday();
     for (const d of deadlines) {
@@ -265,24 +310,76 @@ async function checkRemindersOffline() {
       const hits = left < 0 ? (steps.length ? ['overdue'] : []) : steps.filter((r) => r === left);
       for (const hit of hits) {
         const marker = 'remind.sw.' + d.id + '.' + d.dueDate + '.' + String(hit);
-        if (marked.has(marker)) continue;
+        const stem = d.id + '.' + d.dueDate + '.' + String(hit);
+        if (
+          marked.has(marker) ||
+          marked.has('remind.push.' + stem + '.json') ||
+          (typeof deviceId === 'string' && marked.has('remind.' + deviceId + '.' + stem))
+        )
+          continue;
         const body =
           hit === 'overdue'
             ? 'Срок «' + d.title + '» прошёл — проверьте, что сделано.'
             : hit === 0
               ? 'Сегодня срок: «' + d.title + '».'
               : '«' + d.title + '»: осталось ' + hit + ' дн. (до ' + d.dueDate + ').';
-        await self.registration.showNotification('Family Hub: срок', {
-          body,
-          tag: marker,
-          lang: 'ru',
-          data: { route: '#/deadlines' },
-        });
+        try {
+          await self.registration.showNotification('Family Hub: срок', {
+            body,
+            tag: marker,
+            lang: 'ru',
+            data: { route: '#/deadlines', source: 'periodic-background' },
+          });
+        } catch (error) {
+          await recordNotificationDelivery('periodic-background', false);
+          throw error;
+        }
         await idbPut(db, 'kv', { key: marker, value: true });
+        await recordNotificationDelivery('periodic-background', true);
         marked.add(marker);
       }
     }
   } finally {
     db.close();
+  }
+}
+
+/**
+ * Контракт с src/notifications/deliveryState.ts. Только whitelisted поля;
+ * текст, endpoint, ID срока и ключи в диагностическую запись не попадают.
+ */
+async function recordNotificationDelivery(source, shown, marker = null) {
+  let db;
+  try {
+    db = await openFamilyDb();
+    if (!db.objectStoreNames.contains('kv')) return;
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readwrite');
+      const store = tx.objectStore('kv');
+      const key = 'notify.delivery.' + source;
+      const req = store.get(key);
+      req.onsuccess = () => {
+        const previous = req.result?.value || {};
+        const count = (v) => (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : 0);
+        const at = new Date().toISOString();
+        store.put({
+          key,
+          value: {
+            receivedCount: count(previous.receivedCount) + 1,
+            shownCount: count(previous.shownCount) + (shown ? 1 : 0),
+            lastReceivedAt: at,
+            lastShownAt: shown ? at : previous.lastShownAt || null,
+          },
+        });
+        if (shown && marker) store.put({ key: marker, value: true });
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } catch {
+    // Служебный счётчик не важнее самого уведомления.
+  } finally {
+    if (db) db.close();
   }
 }

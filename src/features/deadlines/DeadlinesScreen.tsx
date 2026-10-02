@@ -12,7 +12,7 @@ import { deadlinesRepo } from '../../data/repositories';
 import { daysUntil, formatRu, humanizeDelta, isDateOnly, parseRuDate } from '../../domain/dateOnly';
 import type { Deadline, DeadlineKind } from '../../domain/types';
 import { Banner, Field, Icon, Sheet, Skeleton } from '../../design/ui';
-import { downloadIcs } from '../../notifications/ics';
+import { calendarExportSummary, downloadIcs } from '../../notifications/ics';
 import {
   deadlineTone,
   KIND_THRESHOLDS,
@@ -43,6 +43,10 @@ export default function DeadlinesScreen({ ready }: { ready: boolean }) {
   const sync = useSyncState();
   const [editing, setEditing] = useState<Deadline | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [calendarBusy, setCalendarBusy] = useState(false);
+  const [calendarNotice, setCalendarNotice] = useState<{ tone: 'ok' | 'err'; text: string } | null>(
+    null,
+  );
 
   const live = useMemo(() => {
     if (!rows) return null;
@@ -139,12 +143,30 @@ export default function DeadlinesScreen({ ready }: { ready: boolean }) {
         type="button"
         className="btn btn--block"
         style={{ marginTop: 'var(--sp-2)' }}
+        disabled={calendarBusy || live.length === 0}
         onClick={() => {
-          void db.deadlines.toArray().then((all) => downloadIcs(all.filter((d) => !d.deletedAt)));
+          setCalendarBusy(true);
+          void downloadIcs(live)
+            .then((result) => {
+              setCalendarNotice({ tone: 'ok', text: calendarExportSummary(result) });
+            })
+            .catch(() => {
+              setCalendarNotice({
+                tone: 'err',
+                text: 'Не удалось скачать календарь. Проверьте наличие семейных сроков с датой и повторите.',
+              });
+            })
+            .finally(() => setCalendarBusy(false));
         }}
       >
-        <Icon name="calendar" size={20} /> В календарь телефона (резервно)
+        <Icon name="calendar" size={20} />{' '}
+        {calendarBusy ? 'Готовим файл…' : 'В календарь телефона (резервно)'}
       </button>
+      {calendarNotice && (
+        <Banner tone={calendarNotice.tone}>
+          <div className="grow small">{calendarNotice.text}</div>
+        </Banner>
+      )}
 
       {composeOpen && <DeadlineSheet onClose={() => setComposeOpen(false)} />}
       {editing && <DeadlineSheet editing={editing} onClose={() => setEditing(null)} />}

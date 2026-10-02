@@ -6,7 +6,8 @@ name: Push reminders
 # Push на подписки устройств; каждое напоминание — один раз (маркеры push-sent).
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    # Сохраняем интервал 30 минут, но уходим с нагруженных 00/30.
+    - cron: '17,47 * * * *'
   workflow_dispatch: {}
 
 concurrency:

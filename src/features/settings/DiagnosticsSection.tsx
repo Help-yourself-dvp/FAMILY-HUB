@@ -6,6 +6,7 @@ import { notificationChannels, isStandalone, isIos } from '../../notifications/c
 import { readDisplayMode } from './helpers';
 import { log } from '../../shared/log';
 import { SCHEMA_VERSION } from '../../domain/types';
+import { notificationDeliverySnapshot } from '../../notifications/deliveryState';
 
 export default function DiagnosticsSection() {
   const sync = useSyncState();
@@ -20,6 +21,21 @@ export default function DiagnosticsSection() {
     }>
   >([]);
   const [persisted, setPersisted] = useState<string>('…');
+  const [delivery, setDelivery] = useState<Awaited<
+    ReturnType<typeof notificationDeliverySnapshot>
+  > | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void notificationDeliverySnapshot()
+      .then((snapshot) => {
+        if (!cancelled) setDelivery(snapshot);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -69,7 +85,11 @@ export default function DiagnosticsSection() {
           return typeof v === 'number' || typeof v === 'boolean';
         }),
       );
+    // Читаем подтверждения заново при копировании, а не старый снимок монтирования.
+    const notifications = await notificationDeliverySnapshot().catch(() => null);
+    setDelivery(notifications);
     const payload = {
+      notifications,
       app: __APP_VERSION__,
       schema: SCHEMA_VERSION,
       at: new Date().toISOString(),
@@ -177,6 +197,30 @@ export default function DiagnosticsSection() {
                 {copied}
               </div>
             )}
+            <hr className="divider" />
+            <div className="strong small">Факт уведомлений на этом устройстве</div>
+            <div className="tiny muted">
+              Счётчики с версии 0.3.7. Web Push — сообщение действительно получено обработчиком на
+              устройстве. «Показ принят» означает успех системного API, не гарантирует видимость на
+              заблокированном экране. Локальное уведомление — не доказательство push. При
+              копировании отчёта эти данные перечитываются.
+            </div>
+            {row(
+              'Активный SW: протокол уведомлений',
+              delivery?.workerNotificationsRevision ?? 'не определён — проверьте обновление',
+            )}
+            {row('Web Push: получено', delivery?.webPush.receivedCount ?? '—')}
+            {row('Web Push: показ принят', delivery?.webPush.shownCount ?? '—')}
+            {row('Web Push: последнее получение', delivery?.webPush.lastReceivedAt ?? '—')}
+            {row('При открытом приложении: показ принят', delivery?.foreground.shownCount ?? '—')}
+            {row('Фон Android: показ принят', delivery?.background.shownCount ?? '—')}
+            {row(
+              'Календарь: событий в последнем файле',
+              delivery?.calendarExport.eventCount ?? '—',
+            )}
+            {row('Календарь: формат файла', delivery?.calendarExport.formatRevision ?? '—')}
+            {row('Календарь: последний экспорт', delivery?.calendarExport.exportedAt ?? '—')}
+            <div className="tiny muted">Факт импорта в календарь браузеру недоступен.</div>
             <hr className="divider" />
             <div className="strong small">Каналы уведомлений</div>
             {diag.map((d) => (

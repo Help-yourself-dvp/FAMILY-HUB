@@ -11,7 +11,8 @@
  *   2 web-push         — требует GitHub Actions + VAPID, проверяется на устройствах
  */
 import { db, kvGet, kvSet, KV_KEYS } from '../data/db';
-import { downloadIcs } from './ics';
+import { calendarExportSummary, downloadIcs, exportableDeadlines } from './ics';
+import { recordLocalDelivery } from './deliveryState';
 import { log } from '../shared/log';
 import { loadSession } from '../data/session';
 import { auth } from '../data/remote/authStrategy';
@@ -142,7 +143,13 @@ class LocalForegroundChannel implements NotificationChannel {
       try {
         const reg = await navigator.serviceWorker?.getRegistration();
         if (reg && Notification.permission === 'granted') {
-          await reg.showNotification(e.title, { body: e.body, tag: e.id, lang: 'ru' });
+          await reg.showNotification(e.title, {
+            body: e.body,
+            tag: e.id,
+            lang: 'ru',
+            data: { route: e.route ?? '#/', source: 'local-foreground' },
+          });
+          await recordLocalDelivery();
           report.delivered += 1;
         } else {
           report.failed += 1;
@@ -172,14 +179,14 @@ class IcsCalendarChannel implements NotificationChannel {
   readonly id = 'ics-calendar' as const;
   readonly label = 'Календарь телефона (ICS)';
   readonly description =
-    'Резервный канал: скачивает файл календаря (.ics) со всеми сроками. «Включено» означает, что файл скачан — подтвердите импорт в календарь телефона. Он напомнит сам, даже если сайт и push откажут. Выключение здесь не удаляет события из календаря; после изменения сроков скачайте файл снова.';
+    'Резервный файл календаря: обычные события в 09:00 (Москва) с напоминаниями. «Включено» означает только скачивание. Импорт подтвердите сами; открытие файла на Android не гарантирует добавление. Выключение здесь не удаляет события из календаря.';
   readonly worksScreenOff = true;
   readonly needsExternalInfra = false;
   readonly level = 1 as const;
 
   isSupported(): Promise<SupportReport> {
-    // Скачивание .ics работает во всех мобильных браузерах; на iOS открытие файла
-    // предлагает «Добавить все события в календарь».
+    // Проверяем только способность скачать файл. Наличие импортёра календаря
+    // браузеру неизвестно; не обещаем автоматический импорт на Android.
     return Promise.resolve({
       supported: typeof window !== 'undefined' && typeof Blob !== 'undefined',
     });
@@ -187,15 +194,12 @@ class IcsCalendarChannel implements NotificationChannel {
   async enable(): Promise<EnableResult> {
     try {
       const deadlines = await db.deadlines.toArray();
-      const live = deadlines.filter((d) => !d.deletedAt);
+      const live = exportableDeadlines(deadlines);
       if (live.length === 0) {
         return { enabled: false, reason: 'Сроков пока нет — добавьте срок, затем включите канал' };
       }
-      await downloadIcs(live);
-      return {
-        enabled: true,
-        reason: `Файл календаря скачан (${live.length} событий) — подтвердите добавление в календарь телефона`,
-      };
+      const result = await downloadIcs(live);
+      return { enabled: true, reason: calendarExportSummary(result) };
     } catch (e) {
       return { enabled: false, reason: e instanceof Error ? e.message : String(e) };
     }

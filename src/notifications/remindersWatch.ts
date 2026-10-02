@@ -27,39 +27,57 @@ export function reminderText(d: Deadline, hit: number | 'overdue'): string {
   return `«${d.title}»: осталось ${hit} дн. (до ${d.dueDate}).`;
 }
 
-/** Одна проверка: собрать несработавшие напоминания и доставить локально. */
-export async function runReminderCheck(): Promise<number> {
+let inFlight: Promise<number> | null = null;
+
+/** Фактически показанные локальные уведомления, не число найденных сроков. */
+export function runReminderCheck(): Promise<number> {
+  if (inFlight) return inFlight;
+  const task = deliverPendingReminders().finally(() => {
+    inFlight = null;
+  });
+  inFlight = task;
+  return task;
+}
+
+async function deliverPendingReminders(): Promise<number> {
   let deviceId: string;
   try {
     deviceId = session().deviceId;
   } catch {
-    return 0; // сессия ещё не готова — напоминания подождут следующего такта
+    return 0;
   }
+  const channel = notificationChannels.byId('local-foreground');
+  if (!channel || !(await channel.isSupported()).supported) return 0;
   const now = today();
   const rows = await db.deadlines.toArray();
-  const events: FamilyEvent[] = [];
+  let delivered = 0;
   for (const d of rows) {
     if (d.deletedAt || d.visibility === 'private') continue;
     for (const hit of reminderHits(d, now)) {
-      const key = `remind.${deviceId}.${d.id}.${d.dueDate}.${String(hit)}`;
-      if (await kvGet<boolean>(key)) continue;
-      await kvSet(key, true);
-      events.push({
+      const stem = `${d.id}.${d.dueDate}.${String(hit)}`;
+      const key = `remind.${deviceId}.${stem}`;
+      const seen = await Promise.all([
+        kvGet<boolean>(key),
+        kvGet<boolean>(`remind.sw.${stem}`),
+        kvGet<boolean>(`remind.push.${stem}.json`),
+      ]);
+      if (seen.some((value) => value === true)) continue;
+      const event: FamilyEvent = {
         id: key,
         title: 'Family Hub: срок',
         body: reminderText(d, hit),
         route: '#/deadlines',
         createdAt: new Date().toISOString(),
-      });
+      };
+      const result = await channel.deliver([event]).catch(() => null);
+      // Раньше маркер писался ДО показа: при сбое срок терял своё напоминание.
+      if (result && result.delivered > 0) {
+        await kvSet(key, true);
+        delivered += 1;
+      }
     }
   }
-  if (events.length === 0) return 0;
-  const channel = notificationChannels.byId('local-foreground');
-  if (!channel) return 0;
-  const support = await channel.isSupported();
-  if (!support.supported) return events.length;
-  await channel.deliver(events).catch(() => undefined);
-  return events.length;
+  return delivered;
 }
 
 /** Подписка: проверка при запуске и раз в 6 часов, пока приложение открыто. */

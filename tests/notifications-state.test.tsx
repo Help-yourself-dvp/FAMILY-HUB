@@ -234,3 +234,19 @@ describe('NotificationsSection — календарь телефона', () => {
     expect(icsSwitch().getAttribute('aria-checked')).toBe('true');
   });
 });
+
+it('проверочный календарь не записывает срок и не включает резерв семейных данных', async () => {
+  await openNotifications();
+  fireEvent.click(screen.getByRole('button', { name: 'Проверочный календарь: 1 событие' }));
+  await screen.findByText(/Скачан проверочный файл/u);
+  expect(await kvGet(ICS_KEY)).toBeUndefined();
+  expect(await kvGet('notify.calendar.export')).toBeUndefined();
+  expect(await db.deadlines.count()).toBe(0);
+  expect(calendarClick).toHaveBeenCalledOnce();
+});
+
+it('пустой экспорт не создаёт файл и не выдаёт его за резерв календаря', async () => {
+  await expect(downloadIcs([])).rejects.toThrow(/Нет семейных сроков/u);
+  expect(await kvGet(ICS_KEY)).toBeUndefined();
+  expect(createObjectURL).not.toHaveBeenCalled();
+});

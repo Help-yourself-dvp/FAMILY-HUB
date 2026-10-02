@@ -19,6 +19,8 @@ import {
 } from '../../notifications/channels';
 import { Banner, Icon, Switch } from '../../design/ui';
 import { kvGet, kvSet, KV_KEYS } from '../../data/db';
+import { downloadCalendarTestIcs } from '../../notifications/ics';
+import { formatRu } from '../../domain/dateOnly';
 
 export default function NotificationsSection() {
   const [support, setSupport] = useState<Record<string, SupportReport>>({});
@@ -111,6 +113,18 @@ export default function NotificationsSection() {
     }
   }, []);
 
+  const testCalendar = () => {
+    try {
+      const date = downloadCalendarTestIcs();
+      setNotice({
+        tone: 'ok',
+        text: `Скачан проверочный файл: одно вымышленное событие «Family Hub: проверка календаря» на ${formatRu(date)}, 09:00 (Москва). Он не включает резерв семейных сроков. Подтвердите импорт и откройте эту дату в календаре.`,
+      });
+    } catch {
+      setNotice({ tone: 'err', text: 'Не удалось скачать проверочный календарь.' });
+    }
+  };
+
   return (
     <section className="stack">
       <details className="acc">
@@ -178,6 +192,7 @@ export default function NotificationsSection() {
                   enabled={enabled[c.id]}
                   busy={busyId === c.id}
                   onToggle={(v) => void toggle(c.id, v)}
+                  onCalendarTest={testCalendar}
                 />
               ))}
             </div>
@@ -194,12 +209,14 @@ function ChannelCard({
   enabled,
   busy,
   onToggle,
+  onCalendarTest,
 }: {
   channel: NotificationChannel;
   support: SupportReport | undefined;
   enabled: boolean | undefined;
   busy: boolean;
   onToggle: (v: boolean) => void;
+  onCalendarTest: () => void;
 }) {
   const unsupported = Boolean(support && !support.supported);
   const checking = enabled === undefined;
@@ -223,12 +240,14 @@ function ChannelCard({
       <div className="stack" style={{ gap: 6 }}>
         {c.worksScreenOff && (
           <div className="tiny" style={{ color: 'var(--ok)' }}>
-            Работает при выключенном экране и закрытом приложении.
+            {c.id === 'ics-calendar'
+              ? 'После подтверждённого импорта календарь напомнит сам.'
+              : 'Поддерживает доставку при закрытом приложении; её нужно проверить на устройстве.'}
           </div>
         )}
         {c.needsExternalInfra && (
           <div className="tiny" style={{ color: 'var(--warn)' }}>
-            Требует бесплатных минут GitHub Actions для отправки.
+            Отправитель — в публичном GitHub, без расхода платных минут.
           </div>
         )}
         {unsupported && support?.reason && (
@@ -238,12 +257,35 @@ function ChannelCard({
         )}
         {c.level === 2 && !unsupported && (
           <div className="tiny" style={{ color: 'var(--warn)' }}>
-            Системный push при закрытом приложении. На Android нужен сервис Google (без него канал
-            честно скажет «недоступен» — напоминания всё равно придут фоновой проверкой и при
-            открытии приложения). На iPhone — iOS 16.4+ и установленное на экран Домой приложение.
+            Включённый переключатель означает подписку браузера, не проверенную доставку. На Android
+            push использует сервис Google; фоновую проверку запускает Chrome по своему усмотрению.
+            На iPhone нужны iOS 16.4+ и установка на экран Домой. В Диагностике отдельно считаются
+            Web Push и уведомления при открытии приложения.
           </div>
         )}
       </div>
+
+      {c.id === 'ics-calendar' && (
+        <div className="stack">
+          <p className="tiny muted" style={{ margin: 0 }}>
+            Открытие файла в Android-календаре не подтверждает импорт. Google описывает импорт через
+            веб-версию на компьютере: Настройки → Импорт и экспорт. Поддержка прямого импорта в
+            Honor пока не подтверждена. После изменения сроков скачайте файл снова; события стоят на
+            датах сроков, не на датах каждого будильника.
+          </p>
+          <button type="button" className="btn btn--sm" onClick={onCalendarTest}>
+            Проверочный календарь: 1 событие
+          </button>
+          <a
+            className="small"
+            href="https://support.google.com/calendar/answer/37118?hl=ru&co=GENIE.Platform%3DDesktop"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Инструкция импорта Google
+          </a>
+        </div>
+      )}
 
       <div className="row--between row" style={{ gap: 'var(--sp-3)', paddingTop: 2 }}>
         <span className="small" style={{ color: 'var(--text-2)' }}>
