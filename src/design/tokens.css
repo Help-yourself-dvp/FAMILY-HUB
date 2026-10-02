@@ -1,0 +1,114 @@
+/**
+ * Дизайн-токены Family Hub (§24: светлая/тёмная тема, системная по умолчанию).
+ *
+ * ВОССТАНОВЛЕН 2026-10-01 после потери: файл случайно не попал в git, потому что
+ * правило `.gitignore` для секретов `tokens.*` матчил и `src/design/tokens.css`.
+ * Локально файл был, поэтому локальные сборки проходили, а на runner'е GitHub сборка
+ * падала с UNRESOLVED_IMPORT — это и была неразгаданная причина «вопроса Q11».
+ * В git добавлен с исключением `!src/design/tokens.css` в `.gitignore`.
+ *
+ * Значения восстановлены по всем использованиям var(--…) в base.css, components.css,
+ * ui.tsx и по theme-color из index.html (#f4f6fb / #0b0e15).
+ */
+:root {
+  /* Палитра · свет */
+  --bg: #f4f6fb;
+  --bg-elev: #ffffff;
+  --bg-sunken: #e9edf6;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-solid: #ffffff;
+  --text: #10131a;
+  --text-2: #4a5265;
+  --text-3: #7a8399;
+  --stroke: rgba(16, 19, 26, 0.12);
+  --stroke-strong: rgba(16, 19, 26, 0.3);
+  --scrim: rgba(10, 12, 18, 0.45);
+
+  /* Смысловые цвета */
+  --accent: #4f8cff;
+  --accent-soft: rgba(79, 140, 255, 0.16);
+  --ok: #2fae7d;
+  --ok-soft: rgba(52, 201, 142, 0.16);
+  --warn: #c98a10;
+  --warn-soft: rgba(255, 176, 32, 0.18);
+  --err: #d64545;
+  --err-soft: rgba(214, 69, 69, 0.14);
+
+  /* Типографика */
+  --font:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+    sans-serif;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 15px;
+  --fs-lg: 17px;
+  --fs-xl: 22px;
+  --fs-2xl: 30px;
+  --fw-med: 500;
+  --fw-semi: 600;
+  --fw-bold: 700;
+  --lh: 1.5;
+
+  /* Отступы */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 28px;
+
+  /* Радиусы */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 24px;
+  --r-pill: 999px;
+
+  /* Тени */
+  --shadow-sm: 0 1px 2px rgba(16, 19, 26, 0.08);
+  --shadow-md: 0 4px 12px rgba(16, 19, 26, 0.1);
+  --shadow-lg: 0 12px 32px rgba(16, 19, 26, 0.16);
+
+  /* Движение */
+  --dur: 200ms;
+  --dur-fast: 120ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Геометрия интерфейса */
+  --nav-h: 60px;
+  --tap: 44px;
+
+  /* Безопасные зоны iPhone (§13: notch / home indicator) */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+/* Тёмная тема: theme.ts проставляет data-theme на <html> (system разбирается там же). */
+:root[data-theme='dark'] {
+  --bg: #0b0e15;
+  --bg-elev: #151a24;
+  --bg-sunken: #070910;
+  --surface: rgba(21, 26, 36, 0.72);
+  --surface-solid: #151a24;
+  --text: #eef1f7;
+  --text-2: #aeb6c6;
+  --text-3: #7d8598;
+  --stroke: rgba(238, 241, 247, 0.14);
+  --stroke-strong: rgba(238, 241, 247, 0.32);
+  --scrim: rgba(0, 0, 0, 0.6);
+
+  --accent: #6f9dff;
+  --accent-soft: rgba(111, 157, 255, 0.2);
+  --ok: #46c795;
+  --ok-soft: rgba(70, 199, 149, 0.18);
+  --warn: #ffb020;
+  --warn-soft: rgba(255, 176, 32, 0.2);
+  --err: #ff6b6b;
+  --err-soft: rgba(255, 107, 107, 0.18);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+}

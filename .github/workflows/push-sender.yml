@@ -1,0 +1,30 @@
+name: Push reminders
+
+# Отправитель редких важных напоминаний (ЭТАП 3, решение владельца 2026-10-01):
+# живёт в ПУБЛИЧНОМ репозитории — платные минуты приватного хранилища не тратятся.
+# Раз в 30 минут: ступени сроков, сработавшие сегодня (Europe/Moscow), уходят Web
+# Push на подписки устройств; каждое напоминание — один раз (маркеры push-sent).
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: push-sender
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Отправить напоминания
+        env:
+          FAMILY_REPO_TOKEN: ${{ secrets.FAMILY_REPO_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+        run: node scripts/push-sender.mjs

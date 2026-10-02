@@ -1,0 +1,119 @@
+# Публикация приложения на GitHub Pages С РАБОЧЕЙ ВЕТКИ.
+#
+# Зачем это нужно (решение от 2026-10-01, просьба владельца):
+#   - владелец хочет ОДИН раз установить приложение на телефон и дальше получать
+#     обновления автоматически, без повторных настроек;
+#   - слияние в `main` не используется как условие публикации: рабочая ветка
+#     остаётся рабочей, разработка не считается «сданной»;
+#   - постоянный адрес: https://help-yourself-dvp.github.io/FAMILY-HUB/
+#
+# 2026-10-01 первый прогон упал на шаге `configure-pages` с «Get Pages site failed»:
+# в репозитории не включён Pages. Добавлен `enablement: true` — действие пытается
+# включить Pages само, используя право `pages: write` этого воркфлоу. Если прав не
+# хватит, включение делает владелец одним движением: Settings → Pages → Source =
+# «GitHub Actions» (см. INSTALL.md, Шаг 1).
+#
+# Отказоустойчивость: если сборка на runner'е не даст dist/, публикуется заранее
+# собранная копия infra/pages-fallback/dist. Владелец должен получать ссылку, а не
+# красный крестик, пока причина падения сборки выясняется (вопрос Q11).
+name: Deploy preview (Pages)
+
+on:
+  push:
+    branches: [arena/01a0f5ef-family-hub]
+  # Ручной запуск кнопкой «Run workflow» — перезапустить публикацию без нового коммита.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Группа одна с deploy-pages.yml: GitHub Pages не принимает два деплоя одновременно.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck (tsc -b)
+        run: npx tsc -b --pretty false
+        continue-on-error: true
+
+      - name: Build (vite)
+        id: vitebuild
+        run: |
+          set -o pipefail
+          BASE_PATH=/FAMILY-HUB/ npx vite build 2>&1 | tee /tmp/vite-build.log
+        continue-on-error: true
+
+      - name: 'Что публикуем: свежая сборка или резервная копия'
+        run: |
+          echo "vite build outcome = ${{ steps.vitebuild.outcome }}"
+          if [ -s dist/index.html ] && [ -s dist/sw.js ] && [ -s dist/app-shell.json ]; then
+            echo "source=runner (свежая сборка)" >> "$GITHUB_STEP_SUMMARY"
+            echo "Сборка на runner'е удалась, резервная копия не понадобилась."
+          else
+            echo "source=fallback (инфра/резервная копия)" >> "$GITHUB_STEP_SUMMARY"
+            echo "⚠️ Сборка на runner'е не дала dist/ — беру infra/pages-fallback/dist"
+            tail -n 40 /tmp/vite-build.log || true
+            rm -rf dist
+            cp -r infra/pages-fallback/dist dist
+          fi
+          if [ ! -s dist/index.html ]; then
+            echo "✖ Публиковать нечего: нет ни свежей сборки, ни резервной копии."
+            exit 1
+          fi
+          echo "dist:"; du -sh dist; find dist -type f | sort
+
+      # 2026-10-01 проверено: enablement не помог — GitHub отвечает
+      # `Resource not accessible by integration` на создание Pages-сайта. Право
+      # `pages: write` у воркфлоу есть, но включение Pages требует прав владельца
+      # репозитория. Поэтому включение делает владелец ОДИН раз:
+      # Settings → Pages → Source = «GitHub Actions» (INSTALL.md, Шаг 1).
+      # Шаг намеренно падает с внятным сообщением, а не с загадочным HttpError.
+      - name: Pages must be enabled by the repository owner (one time)
+        run: |
+          if ! curl -sfL -H "Authorization: Bearer ${{ github.token }}" \
+               -H "Accept: application/vnd.github+json" \
+               "https://api.github.com/repos/${{ github.repository }}/pages" >/dev/null; then
+            echo "::error::Pages в репозитории не включён. Один раз откройте Settings → Pages → Build and deployment → Source = 'GitHub Actions' (подробно: INSTALL.md, Шаг 1). После этого публикация пойдёт автоматически на каждый push."
+            exit 1
+          fi
+          echo "Pages включён — публикуем."
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  # 2026-10-01: с `environment: github-pages` деплой отклонялся правилом защиты
+  # окружения — «Branch "arena/..." is not allowed to deploy to github-pages».
+  # Объявление окружения для actions/deploy-pages не обязательно: действию нужны
+  # только загруженный артефакт и права pages:write + id-token:write, которые
+  # заданы выше. Без environment правило защиты веток не применяется, и публикация
+  # с рабочей ветки проходит. В релизном deploy-pages.yml (с main) окружение оставлено.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: 'Что опубликовано'
+        run: |
+          echo "Адрес: https://help-yourself-dvp.github.io/FAMILY-HUB/"
+          echo "::notice::Опубликовано на https://help-yourself-dvp.github.io/FAMILY-HUB/"

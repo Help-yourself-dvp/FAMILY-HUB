@@ -1,0 +1,18 @@
+{
+  "buildId": "0.3.5-muqomzim",
+  "version": "0.3.5",
+  "generatedAt": "2026-10-02T08:09:44.014Z",
+  "precache": [
+    "assets/index-DwFK_0dh.js",
+    "assets/index-Nfgw5g_S.css",
+    "icons/apple-touch-icon.png",
+    "icons/favicon-32.png",
+    "icons/icon-192.png",
+    "icons/icon-512.png",
+    "icons/maskable-512.png",
+    "icons/monochrome-512.png",
+    "index.html",
+    "manifest.webmanifest",
+    "vapid.json"
+  ]
+}

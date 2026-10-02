@@ -1,0 +1,58 @@
+# Деплой «релизного» приложения — только с default branch (`main`).
+#
+# ВАЖНО: это НЕ основной канал для тестирования. Основной — `deploy-preview.yml`,
+# он публикует приложение с рабочей ветки, поэтому слияние в `main` не требуется
+# и не является признаком завершения проекта. Этот workflow сработает только
+# тогда, когда владелец сам решит влить готовый релиз в `main`.
+name: Deploy Pages (main)
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Verify versions
+        run: npm run verify:version
+      - name: Test
+        run: npm run test
+      - name: Build
+        run: npm run build
+        env:
+          # GitHub Pages project-site → базовый путь /<repo>/
+          BASE_PATH: /FAMILY-HUB/
+      - uses: actions/configure-pages@v5
+        with:
+          # Пробуем включить Pages сами (право pages: write у воркфлоу есть).
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

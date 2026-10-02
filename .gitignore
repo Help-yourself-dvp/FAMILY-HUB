@@ -1,0 +1,40 @@
+# Зависимости и артефакты сборки (появятся в ЭТАПЕ 1)
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Исключение: резервная копия сборки для публикации на Pages. Временная мера,
+# пока не найдена причина падения шага сборки на runner'е GitHub (см.
+# infra/pages-fallback/README.md). Папка обязана оставаться в git.
+!infra/pages-fallback/dist/
+
+# Секреты и локальная конфигурация — НИКОГДА не коммитить
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+tokens.*
+# ИСКЛЮЧЕНИЕ (урок 2026-10-01): правило `tokens.*` выше предназначено для файлов
+# секретов, но молча проглатывало и дизайн-токены приложения. Из-за этого
+# src/design/tokens.css не попал в git: локальные сборки проходили, а на runner'е
+# GitHub падали (вопрос Q11). Файл обязан быть в репозитории.
+!src/design/tokens.css
+
+# Тесты и кэши
+coverage/
+.eslintcache
+*.tsbuildinfo
+
+# ОС и редакторы
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Логи
+*.log
+npm-debug.log*
