@@ -24,6 +24,7 @@
  */
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
+import { deadlineRows } from './push-sender-data.mjs';
 
 const API = 'https://api.github.com';
 const OWNER = process.env.FH_DATA_OWNER || 'Help-yourself-dvp';
@@ -35,6 +36,12 @@ const TZ = 'Europe/Moscow';
 
 function log(...args) {
   console.log('[push]', ...args);
+}
+
+// Только фиксированный текст и счётчики — пригодны для check-run annotations.
+// Ни названий сроков, ни ключей, ни push-эндпоинтов в эти сообщения не добавляем.
+function annotation(level, text) {
+  console.log(`::${level} title=Family Hub push::${text}`);
 }
 
 async function gh(path, init = {}) {
@@ -84,7 +91,11 @@ async function putJsonFile(path, data, message) {
 async function deleteFile(path, sha) {
   const res = await gh(`/repos/${OWNER}/${REPO}/contents/${path}`, {
     method: 'DELETE',
-    body: JSON.stringify({ message: `push: удалена мёртвая подписка ${path}`, sha, branch: BRANCH }),
+    body: JSON.stringify({
+      message: `push: удалена мёртвая подписка ${path}`,
+      sha,
+      branch: BRANCH,
+    }),
   });
   if (!res.ok) log('delete', path, 'HTTP', res.status);
 }
@@ -119,6 +130,7 @@ async function main() {
     log(
       'не настроено: владелец должен добавить секреты FAMILY_REPO_TOKEN и VAPID_PRIVATE_KEY (Settings → Secrets and variables → Actions). Выход без ошибки.',
     );
+    annotation('warning', 'Отправка пропущена: не заданы FAMILY_REPO_TOKEN или VAPID_PRIVATE_KEY.');
     return;
   }
 
@@ -135,13 +147,21 @@ async function main() {
   }
   if (!vapidPublic) {
     log('нет публичного ключа VAPID (public/vapid.json или env) — выход без ошибки');
+    annotation('warning', 'Отправка пропущена: нет публичного ключа VAPID.');
     return;
   }
   webpush.setVapidDetails('mailto:family-hub@example.invalid', vapidPublic, VAPID_PRIVATE);
 
-  const deadlines = await getJsonFile('data/deadlines.json');
-  if (!Array.isArray(deadlines)) {
-    log('deadlines.json отсутствует или пуст — напоминать нечего');
+  const deadlines = deadlineRows(await getJsonFile('data/deadlines.json'));
+  if (!deadlines) {
+    annotation(
+      'warning',
+      'Отправка пропущена: файл сроков отсутствует или имеет неподдерживаемый формат.',
+    );
+    return;
+  }
+  if (deadlines.length === 0) {
+    annotation('notice', 'Файл сроков прочитан: 0 записей, напоминать нечего.');
     return;
   }
   const from = todayMoscow();
@@ -159,6 +179,7 @@ async function main() {
   }
   if (subs.length === 0) {
     log('подписок нет: включите «Push при закрытом приложении» в Настройки → Уведомления');
+    annotation('notice', 'Отправка пропущена: нет активных подписок устройств.');
     return;
   }
 
@@ -167,6 +188,7 @@ async function main() {
 
   let sent = 0;
   let skipped = 0;
+  let failed = 0;
   for (const d of deadlines) {
     if (!d || d.deletedAt || d.visibility === 'private') continue;
     for (const hit of hitsFor(d, from)) {
@@ -187,12 +209,13 @@ async function main() {
           await webpush.sendNotification(s.sub, payload, { TTL: 24 * 3600 });
           okCount += 1;
         } catch (e) {
+          failed += 1;
           const status = e?.statusCode;
           if (status === 404 || status === 410) {
-            log('мёртвая подписка, удаляю:', s.path);
+            log('мёртвая подписка, удаляю; HTTP', status);
             await deleteFile(s.path, s.sha);
           } else {
-            log('ошибка доставки', s.path, status || e?.message);
+            log('ошибка доставки; HTTP', typeof status === 'number' ? status : 'неизвестен');
           }
         }
       }
@@ -207,11 +230,21 @@ async function main() {
       }
     }
   }
-  log(`готово: отправлено ${sent}, пропущено по маркерам ${skipped}, подписок ${subs.length}`);
+  annotation(
+    failed > 0 ? 'warning' : 'notice',
+    `Цикл завершён: отправлено ${sent}, пропущено по маркерам ${skipped}, подписок ${subs.length}, ошибок доставки ${failed}.`,
+  );
 }
 
 main().catch((e) => {
   // Не красим workflow из-за преходящих сбоев сети/GitHub: напоминание догонит
   // следующий запуск через 30 минут, маркеры не дадут дублей.
-  log('сбой цикла (будет повторён следующим запуском):', e?.message || e);
+  // Ошибки библиотек могут содержать endpoint подписки — наружу только код.
+  const http = /HTTP (\d{3})/u.exec(e instanceof Error ? e.message : '');
+  const code = http
+    ? `HTTP ${http[1]}`
+    : e?.code === 'ERR_MODULE_NOT_FOUND'
+      ? 'dependency-missing'
+      : 'cycle-error';
+  annotation('warning', `Цикл отправки не завершён (${code}); повтор в следующем запуске.`);
 });

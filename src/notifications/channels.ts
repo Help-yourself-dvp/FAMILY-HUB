@@ -10,7 +10,7 @@
  *   1 ics-calendar     — работает всегда, ноль инфраструктуры, ЭКРАН ВЫКЛЮЧЕН ✓
  *   2 web-push         — требует GitHub Actions + VAPID, проверяется на устройствах
  */
-import { db, kvGet, KV_KEYS } from '../data/db';
+import { db, kvGet, kvSet, KV_KEYS } from '../data/db';
 import { downloadIcs } from './ics';
 import { log } from '../shared/log';
 import { loadSession } from '../data/session';
@@ -172,7 +172,7 @@ class IcsCalendarChannel implements NotificationChannel {
   readonly id = 'ics-calendar' as const;
   readonly label = 'Календарь телефона (ICS)';
   readonly description =
-    'Резервный канал: скачивает файл календаря (.ics) со всеми сроками — телефон добавит их в системный календарь и напомнит сам, даже если сайт и push откажут. Повторите включение после изменения сроков.';
+    'Резервный канал: скачивает файл календаря (.ics) со всеми сроками. «Включено» означает, что файл скачан — подтвердите импорт в календарь телефона. Он напомнит сам, даже если сайт и push откажут. Выключение здесь не удаляет события из календаря; после изменения сроков скачайте файл снова.';
   readonly worksScreenOff = true;
   readonly needsExternalInfra = false;
   readonly level = 1 as const;
@@ -191,7 +191,7 @@ class IcsCalendarChannel implements NotificationChannel {
       if (live.length === 0) {
         return { enabled: false, reason: 'Сроков пока нет — добавьте срок, затем включите канал' };
       }
-      downloadIcs(live);
+      await downloadIcs(live);
       return {
         enabled: true,
         reason: `Файл календаря скачан (${live.length} событий) — подтвердите добавление в календарь телефона`,
@@ -200,21 +200,21 @@ class IcsCalendarChannel implements NotificationChannel {
       return { enabled: false, reason: e instanceof Error ? e.message : String(e) };
     }
   }
-  disable(): Promise<void> {
-    return Promise.resolve();
+  async disable(): Promise<void> {
+    // События в системном календаре браузеру недоступны: снимаем только отметку.
+    await kvSet(KV_KEYS.notifyIcsDownloaded, false);
   }
   deliver(): Promise<DeliveryReport> {
-    // Реальная генерация ICS — ЭТАП 6 (§6.12). Канал объявлен сейчас, чтобы
-    // архитектура и UI-тумблер были готовы.
+    // Календарь напомнит сам после ручного импорта файла, не через deliver().
     return Promise.resolve(emptyDelivery(this.id));
   }
   async diagnose(): Promise<DiagnosticSnapshot> {
     const s = await this.isSupported();
     return {
       channelId: this.id,
-      enabled: false,
+      enabled: (await kvGet<boolean>(KV_KEYS.notifyIcsDownloaded)) === true,
       supported: s.supported,
-      details: { note: 'генерация ICS появится на ЭТАПЕ 6' },
+      details: { note: 'флаг означает: .ics скачан; импорт подтверждает пользователь' },
     };
   }
 }
@@ -362,17 +362,19 @@ class WebPushChannel implements NotificationChannel {
   }
   async diagnose(): Promise<DiagnosticSnapshot> {
     const s = await this.isSupported();
-    const reg = await navigator.serviceWorker?.getRegistration?.();
-    let subscribed = false;
+    let reg: ServiceWorkerRegistration | undefined;
+    let subscribed: boolean | null = null;
     try {
-      const ready = await navigator.serviceWorker?.ready;
-      subscribed = Boolean(await ready?.pushManager?.getSubscription?.());
+      reg = await navigator.serviceWorker?.getRegistration?.();
+      // ready может никогда не завершиться, если SW ещё не зарегистрирован.
+      // Проверка состояния не должна ни ждать установки, ни создавать подписку.
+      subscribed = Boolean(await reg?.pushManager?.getSubscription?.());
     } catch {
-      // Диагностика не критична: остаётся false.
+      // null = проверить не удалось, а не «подписки нет». UI сохранит свой кэш.
     }
     return {
       channelId: this.id,
-      enabled: subscribed,
+      enabled: subscribed === true,
       supported: s.supported,
       details: {
         serviceWorkerRegistered: Boolean(reg),

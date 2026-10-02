@@ -8,6 +8,7 @@
  * напомнит за те же самые дни, что и приложение.
  */
 import type { Deadline } from '../domain/types';
+import { kvSet, KV_KEYS } from '../data/db';
 
 /** Экранирование текста по RFC 5545 §3.3.11. */
 export function escapeIcsText(raw: string): string {
@@ -81,7 +82,10 @@ export function buildDeadlinesIcs(deadlines: Deadline[], opts: IcsBuildOptions =
 }
 
 /** Скачивание .ics: телефон сам предложит добавить события в календарь. */
-export function downloadIcs(deadlines: Deadline[], filename = 'family-hub-deadlines.ics'): void {
+export async function downloadIcs(
+  deadlines: Deadline[],
+  filename = 'family-hub-deadlines.ics',
+): Promise<void> {
   const blob = new Blob([buildDeadlinesIcs(deadlines)], { type: 'text/calendar;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -91,4 +95,7 @@ export function downloadIcs(deadlines: Deadline[], filename = 'family-hub-deadli
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  // Запоминаем оба пути скачивания: из настроек и из раздела «Сроки».
+  // Браузер не сообщает, импортировал ли пользователь файл в календарь.
+  await kvSet(KV_KEYS.notifyIcsDownloaded, true);
 }

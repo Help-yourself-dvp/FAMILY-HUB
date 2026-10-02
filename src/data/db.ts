@@ -126,6 +126,10 @@ export const KV_KEYS = {
   lastSyncAt: 'sync.lastSuccessAt',
   lastSyncError: 'sync.lastError',
   notificationLevel: 'notifications.level',
+  /** Локальный кэш UI; источник истины для push — подписка браузера. */
+  notifyPushEnabled: 'notify.channels.push',
+  /** Только факт скачивания .ics, не подтверждение импорта в календарь. */
+  notifyIcsDownloaded: 'notify.channels.ics',
 } as const;
 
 export async function kvGet<T>(key: string): Promise<T | undefined> {

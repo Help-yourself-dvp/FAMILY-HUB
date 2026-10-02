@@ -10,18 +10,21 @@
  * видимая подпись состояния («включено» / «выключено»), причина недоступности
  * канала объяснена словами, а не значком.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   notificationChannels,
+  type ChannelId,
   type NotificationChannel,
   type SupportReport,
 } from '../../notifications/channels';
 import { Banner, Icon, Switch } from '../../design/ui';
-import { kvGet, kvSet } from '../../data/db';
+import { kvGet, kvSet, KV_KEYS } from '../../data/db';
 
 export default function NotificationsSection() {
   const [support, setSupport] = useState<Record<string, SupportReport>>({});
-  const [enabled, setEnabled] = useState<Record<string, boolean>>({});
+  const [enabled, setEnabled] = useState<Partial<Record<ChannelId, boolean>>>({});
+  // Поздний ответ диагностики не должен откатывать явное действие пользователя.
+  const manuallyChanged = useRef(new Set<ChannelId>());
   const [ready, setReady] = useState(false);
   const [shoppingPush, setShoppingPush] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'err'; text: string } | null>(null);
@@ -34,48 +37,71 @@ export default function NotificationsSection() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      const [cachedPush, icsDownloaded] = await Promise.all([
+        kvGet<boolean>(KV_KEYS.notifyPushEnabled),
+        kvGet<boolean>(KV_KEYS.notifyIcsDownloaded),
+      ]);
       const s: Record<string, SupportReport> = {};
-      const e: Record<string, boolean> = {};
-      for (const c of notificationChannels.all()) {
-        s[c.id] = await c.isSupported();
-        // Уровни 0 и 1 работают всегда и включены по умолчанию (§2.4).
-        e[c.id] = c.level <= 1;
+      for (const c of notificationChannels.all()) s[c.id] = await c.isSupported();
+      if (cancelled) return;
+      // Сначала кэш: уже включённый push не мигает «выключено» на каждом входе.
+      // Без кэша показываем «проверяем…», а не выдуманное состояние подписки.
+      setSupport(s);
+      setEnabled({
+        'local-foreground': true,
+        'ics-calendar': icsDownloaded === true,
+        'web-push': typeof cachedPush === 'boolean' ? cachedPush : undefined,
+      });
+      setReady(true);
+
+      try {
+        const push = notificationChannels.byId('web-push');
+        if (!push) return;
+        const diagnostic = await push.diagnose();
+        if (cancelled || manuallyChanged.current.has('web-push')) return;
+        const subscribed = diagnostic.details.subscribed;
+        if (typeof subscribed !== 'boolean') throw new Error('Состояние подписки неизвестно');
+        setEnabled((p) => ({ ...p, 'web-push': subscribed }));
+        await kvSet(KV_KEYS.notifyPushEnabled, subscribed);
+      } catch {
+        if (cancelled || manuallyChanged.current.has('web-push')) return;
+        setEnabled((p) => ({ ...p, 'web-push': p['web-push'] ?? false }));
+        setNotice({
+          tone: 'warn',
+          text: 'Не удалось проверить push. Показано сохранённое состояние; повторите проверку, открыв настройки снова.',
+        });
       }
+    })().catch(() => {
       if (!cancelled) {
-        setSupport(s);
-        setEnabled(e);
-        setReady(true);
+        setNotice({ tone: 'err', text: 'Не удалось прочитать настройки уведомлений.' });
       }
-    })();
+    });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const toggle = useCallback(async (id: string, on: boolean) => {
-    const ch = notificationChannels.byId(id as 'local-foreground');
+  const toggle = useCallback(async (id: ChannelId, on: boolean) => {
+    const ch = notificationChannels.byId(id);
     if (!ch) return;
     // Включение идёт через сеть (разрешение → ключ → подписка → загрузка):
     // показываем «включаем…», чтобы не выглядело зависанием (приёмка 0.3.3).
+    manuallyChanged.current.add(id);
     setBusyId(id);
     try {
       if (on) {
         const res = await ch.enable();
         setEnabled((p) => ({ ...p, [id]: res.enabled }));
+        if (id === 'web-push') await kvSet(KV_KEYS.notifyPushEnabled, res.enabled);
         setNotice(
           res.enabled
-            ? { tone: 'ok', text: 'Канал включён на этом устройстве.' }
+            ? { tone: 'ok', text: res.reason ?? 'Канал включён на этом устройстве.' }
             : { tone: 'warn', text: res.reason ?? 'Не удалось включить канал.' },
         );
       } else {
-        if (ch.level === 2) {
-          try {
-            await ch.disable();
-          } catch {
-            // Отписка не критична: отправитель удалит мёртвую подписку сам.
-          }
-        }
+        await ch.disable();
         setEnabled((p) => ({ ...p, [id]: false }));
+        if (id === 'web-push') await kvSet(KV_KEYS.notifyPushEnabled, false);
       }
     } catch (e) {
       setEnabled((p) => ({ ...p, [id]: false }));
@@ -149,7 +175,7 @@ export default function NotificationsSection() {
                   key={c.id}
                   channel={c}
                   support={support[c.id]}
-                  enabled={Boolean(enabled[c.id])}
+                  enabled={enabled[c.id]}
                   busy={busyId === c.id}
                   onToggle={(v) => void toggle(c.id, v)}
                 />
@@ -171,12 +197,13 @@ function ChannelCard({
 }: {
   channel: NotificationChannel;
   support: SupportReport | undefined;
-  enabled: boolean;
+  enabled: boolean | undefined;
   busy: boolean;
   onToggle: (v: boolean) => void;
 }) {
   const unsupported = Boolean(support && !support.supported);
-  const disabled = unsupported; // ЭТАП 3 собран: уровень 2 включается пользователем
+  const checking = enabled === undefined;
+  const disabled = unsupported || checking;
 
   return (
     <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
@@ -220,10 +247,18 @@ function ChannelCard({
 
       <div className="row--between row" style={{ gap: 'var(--sp-3)', paddingTop: 2 }}>
         <span className="small" style={{ color: 'var(--text-2)' }}>
-          {busy ? 'включаем…' : enabled ? 'включено' : 'выключено'}
+          {busy
+            ? enabled
+              ? 'выключаем…'
+              : 'включаем…'
+            : checking
+              ? 'проверяем…'
+              : enabled
+                ? 'включено'
+                : 'выключено'}
         </span>
         <Switch
-          checked={enabled && !disabled && !busy}
+          checked={enabled === true}
           label={c.label}
           disabled={disabled || busy}
           onChange={onToggle}
