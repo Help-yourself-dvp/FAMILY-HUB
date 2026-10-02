@@ -3,7 +3,12 @@
  * и «не писать, если merged совпал с remote» (экономия коммитов и минут Actions).
  */
 import { describe, expect, it } from 'vitest';
-import { ConflictError, syncKind, type LocalStorePort, type RemoteStorePort } from '../src/data/sync/core';
+import {
+  ConflictError,
+  syncKind,
+  type LocalStorePort,
+  type RemoteStorePort,
+} from '../src/data/sync/core';
 import type { EntityKind, RemoteFile, Syncable, ShoppingItem } from '../src/domain/types';
 import { SCHEMA_VERSION } from '../src/domain/types';
 
@@ -11,18 +16,42 @@ const NOW = '2026-10-01T10:00:00.000Z';
 
 function item(id: string, over: Partial<ShoppingItem> = {}): ShoppingItem {
   return {
-    id, rev: 1, createdAt: NOW, updatedAt: NOW, updatedBy: 'dev-A', deletedAt: null,
-    kind: 'shopping', title: id, canonicalKey: id, qty: null, unit: null, category: null,
-    store: null, horizon: 'now', note: null, done: false, doneAt: null, doneBy: null, ...over,
+    id,
+    rev: 1,
+    createdAt: NOW,
+    updatedAt: NOW,
+    updatedBy: 'dev-A',
+    deletedAt: null,
+    kind: 'shopping',
+    title: id,
+    canonicalKey: id,
+    qty: null,
+    unit: null,
+    category: null,
+    store: null,
+    horizon: 'now',
+    note: null,
+    done: false,
+    doneAt: null,
+    doneBy: null,
+    ...over,
   };
 }
 
 class FakeLocal implements LocalStorePort {
   entities: Record<EntityKind, Record<string, Syncable>> = {
-    shopping: {}, tasks: {}, deadlines: {}, dictionary: {}, members: {},
+    shopping: {},
+    tasks: {},
+    deadlines: {},
+    dictionary: {},
+    members: {},
   };
   base: Record<EntityKind, Record<string, number>> = {
-    shopping: {}, tasks: {}, deadlines: {}, dictionary: {}, members: {},
+    shopping: {},
+    tasks: {},
+    deadlines: {},
+    dictionary: {},
+    members: {},
   };
   writes = 0;
 
@@ -41,7 +70,12 @@ class FakeLocal implements LocalStorePort {
 }
 
 class FakeRemote implements RemoteStorePort {
-  file: RemoteFile<Syncable> = { schemaVersion: SCHEMA_VERSION, fileRev: 0, updatedAt: '', entities: {} };
+  file: RemoteFile<Syncable> = {
+    schemaVersion: SCHEMA_VERSION,
+    fileRev: 0,
+    updatedAt: '',
+    entities: {},
+  };
   sha: string | null = null;
   /** Сколько раз бросить ConflictError перед успехом. */
   failConflicts = 0;
@@ -50,7 +84,11 @@ class FakeRemote implements RemoteStorePort {
   read<T extends Syncable>(): Promise<{ file: RemoteFile<T>; sha: string | null }> {
     return Promise.resolve({ file: this.file as RemoteFile<T>, sha: this.sha });
   }
-  write<T extends Syncable>(_kind: EntityKind, file: RemoteFile<T>, sha: string | null): Promise<string> {
+  write<T extends Syncable>(
+    _kind: EntityKind,
+    file: RemoteFile<T>,
+    sha: string | null,
+  ): Promise<string> {
     if (this.failConflicts > 0) {
       this.failConflicts -= 1;
       throw new ConflictError('sha mismatch (409)');

@@ -25,6 +25,7 @@ export default function NotificationsSection() {
   const [ready, setReady] = useState(false);
   const [shoppingPush, setShoppingPush] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'err'; text: string } | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     void kvGet<boolean>('notify.shoppingPush').then((v) => setShoppingPush(Boolean(v)));
@@ -54,8 +55,11 @@ export default function NotificationsSection() {
   const toggle = useCallback(async (id: string, on: boolean) => {
     const ch = notificationChannels.byId(id as 'local-foreground');
     if (!ch) return;
-    if (on) {
-      try {
+    // Включение идёт через сеть (разрешение → ключ → подписка → загрузка):
+    // показываем «включаем…», чтобы не выглядело зависанием (приёмка 0.3.3).
+    setBusyId(id);
+    try {
+      if (on) {
         const res = await ch.enable();
         setEnabled((p) => ({ ...p, [id]: res.enabled }));
         setNotice(
@@ -63,25 +67,23 @@ export default function NotificationsSection() {
             ? { tone: 'ok', text: 'Канал включён на этом устройстве.' }
             : { tone: 'warn', text: res.reason ?? 'Не удалось включить канал.' },
         );
-      } catch (e) {
+      } else {
+        if (ch.level === 2) {
+          try {
+            await ch.disable();
+          } catch {
+            // Отписка не критична: отправитель удалит мёртвую подписку сам.
+          }
+        }
         setEnabled((p) => ({ ...p, [id]: false }));
-        setNotice({ tone: 'err', text: describeEnableError(e) });
       }
-      return;
+    } catch (e) {
+      setEnabled((p) => ({ ...p, [id]: false }));
+      setNotice({ tone: 'err', text: describeEnableError(e) });
+    } finally {
+      setBusyId(null);
     }
-    if (ch.level === 2) {
-      try {
-        await ch.disable();
-      } catch {
-        // Отписка не критична: отправитель удалит мёртвую подписку сам.
-      }
-    }
-    setEnabled((p) => ({ ...p, [id]: on }));
   }, []);
-
-  if (notice) {
-    // Баннер причины — владелец видел «переключатель не реагирует»: молчание недопустимо.
-  }
 
   return (
     <section className="stack">
@@ -148,6 +150,7 @@ export default function NotificationsSection() {
                   channel={c}
                   support={support[c.id]}
                   enabled={Boolean(enabled[c.id])}
+                  busy={busyId === c.id}
                   onToggle={(v) => void toggle(c.id, v)}
                 />
               ))}
@@ -163,11 +166,13 @@ function ChannelCard({
   channel: c,
   support,
   enabled,
+  busy,
   onToggle,
 }: {
   channel: NotificationChannel;
   support: SupportReport | undefined;
   enabled: boolean;
+  busy: boolean;
   onToggle: (v: boolean) => void;
 }) {
   const unsupported = Boolean(support && !support.supported);
@@ -215,12 +220,12 @@ function ChannelCard({
 
       <div className="row--between row" style={{ gap: 'var(--sp-3)', paddingTop: 2 }}>
         <span className="small" style={{ color: 'var(--text-2)' }}>
-          {disabled ? 'выключено' : enabled ? 'включено' : 'выключено'}
+          {busy ? 'включаем…' : enabled ? 'включено' : 'выключено'}
         </span>
         <Switch
-          checked={enabled && !disabled}
+          checked={enabled && !disabled && !busy}
           label={c.label}
-          disabled={disabled}
+          disabled={disabled || busy}
           onChange={onToggle}
         />
       </div>

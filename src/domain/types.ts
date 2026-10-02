@@ -149,4 +149,6 @@ export interface ActivityEntry {
   action: 'created' | 'updated' | 'completed' | 'deleted';
   /** ТОЛЬКО короткий заголовок, без приватных подробностей. */
   title: string;
+  /** Куда попала запись: «Покупки · Молочное», «Сроки» (приёмка 0.3.3). */
+  place?: string | null;
 }

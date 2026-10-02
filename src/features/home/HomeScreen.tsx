@@ -158,6 +158,11 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
                   <div key={a.id} className="row" style={{ gap: 'var(--sp-3)' }}>
                     <span className="badge badge--accent">{actionLabel(a.action)}</span>
                     <div className="grow">
+                      {a.place && (
+                        <div className="tiny" style={{ color: 'var(--accent)', marginBottom: 2 }}>
+                          {a.place}
+                        </div>
+                      )}
                       <div className="small" style={{ overflowWrap: 'anywhere' }}>
                         {a.title}
                       </div>

@@ -70,7 +70,10 @@ export const shoppingRepo = {
       doneBy: null,
     };
     await db.shopping.put(item);
-    await appendActivity('created', item.title);
+    await appendActivity('created', item.title, undefined, {
+      kind: 'shopping',
+      place: placeLabel('shopping', item.category),
+    });
     notifyLocalChange();
     return item;
   },
@@ -92,7 +95,10 @@ export const shoppingRepo = {
       updatedBy: s.updatedBy,
     };
     await db.shopping.put(next);
-    await appendActivity('updated', next.title);
+    await appendActivity('updated', next.title, undefined, {
+      kind: 'shopping',
+      place: placeLabel('shopping', next.category),
+    });
     notifyLocalChange();
   },
 
@@ -110,7 +116,10 @@ export const shoppingRepo = {
       updatedBy: s.updatedBy,
     };
     await db.shopping.put(next);
-    await appendActivity('completed', next.title);
+    await appendActivity('completed', next.title, undefined, {
+      kind: 'shopping',
+      place: placeLabel('shopping', next.category),
+    });
     notifyLocalChange();
   },
 
@@ -126,7 +135,10 @@ export const shoppingRepo = {
       updatedAt: s.updatedAt,
       updatedBy: s.updatedBy,
     });
-    await appendActivity('deleted', cur.title);
+    await appendActivity('deleted', cur.title, undefined, {
+      kind: 'shopping',
+      place: placeLabel('shopping', cur.category),
+    });
     notifyLocalChange();
   },
 
@@ -151,7 +163,10 @@ export const shoppingRepo = {
       n += 1;
     }
     if (n > 0) {
-      await appendActivity('created', `Корзина повторена: ${n} поз.`);
+      await appendActivity('created', `Корзина повторена: ${n} поз.`, undefined, {
+        kind: 'shopping',
+        place: placeLabel('shopping'),
+      });
       notifyLocalChange();
     }
     return n;
@@ -220,10 +235,25 @@ export const memberRepo = {
  * Хранится локально и синхронизируется как часть activity (ЭТАП 8).
  * Заголовок КОРОТКИЙ: без приватных подробностей (§6.19).
  */
+const SECTION_LABEL: Record<string, string> = {
+  shopping: 'Покупки',
+  deadlines: 'Сроки',
+  tasks: 'Дела',
+  members: 'Профили',
+};
+
+/** «Покупки · Молочное» — куда попала запись; видно в семейной ленте (приёмка 0.3.3). */
+export function placeLabel(kind: string, category?: string | null): string {
+  const base = SECTION_LABEL[kind] ?? 'Данные';
+  const cat = category?.trim();
+  return cat ? `${base} · ${cat}` : base;
+}
+
 export async function appendActivity(
   action: 'created' | 'updated' | 'completed' | 'deleted',
   title: string,
   actor?: { id: string; name: string },
+  meta?: { kind?: string; place?: string | null },
 ): Promise<void> {
   const s = session();
   const short = title.length > 40 ? `${title.slice(0, 40)}…` : title;
@@ -242,9 +272,10 @@ export async function appendActivity(
     at: new Date().toISOString(),
     actorId,
     actorName: actor?.name || s.name || 'Устройство',
-    kind: 'shopping',
+    kind: meta?.kind === 'deadlines' ? 'deadlines' : 'shopping',
     action,
     title: short,
+    place: meta?.place ?? null,
   });
   // Ограничиваем ленту, чтобы она не росла бесконечно.
   const count = await db.activity.count();
@@ -292,7 +323,10 @@ export const deadlinesRepo = {
       warnDays: input.warnDays ?? null,
     };
     await db.deadlines.put(item);
-    await appendActivity('created', item.title);
+    await appendActivity('created', item.title, undefined, {
+      kind: 'deadlines',
+      place: placeLabel('deadlines'),
+    });
     notifyLocalChange();
     return item;
   },
@@ -310,7 +344,10 @@ export const deadlinesRepo = {
       updatedBy: s.updatedBy,
     };
     await db.deadlines.put(next);
-    await appendActivity('updated', next.title);
+    await appendActivity('updated', next.title, undefined, {
+      kind: 'deadlines',
+      place: placeLabel('deadlines'),
+    });
     notifyLocalChange();
   },
 
@@ -326,7 +363,10 @@ export const deadlinesRepo = {
       updatedAt: s.updatedAt,
       updatedBy: s.updatedBy,
     });
-    await appendActivity('deleted', cur.title);
+    await appendActivity('deleted', cur.title, undefined, {
+      kind: 'deadlines',
+      place: placeLabel('deadlines'),
+    });
     notifyLocalChange();
   },
 };

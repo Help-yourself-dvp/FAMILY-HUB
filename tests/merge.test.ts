@@ -4,7 +4,12 @@
  * одной версии → ни одна не должна потеряться.
  */
 import { describe, expect, it } from 'vitest';
-import { canCompactTombstone, dirtyIds, mergeEntities, nextBaseSnapshot } from '../src/domain/merge';
+import {
+  canCompactTombstone,
+  dirtyIds,
+  mergeEntities,
+  nextBaseSnapshot,
+} from '../src/domain/merge';
 import type { ShoppingItem, Syncable } from '../src/domain/types';
 
 const NOW = '2026-10-01T10:00:00.000Z';
@@ -90,8 +95,20 @@ describe('изменение только одной стороны', () => {
 describe('настоящий конфликт: обе стороны правили одну сущность', () => {
   it('побеждает более поздний updatedAt, проигравшая версия сохраняется', () => {
     const base1 = item('milk', { title: 'Молоко' });
-    const local = { ...base1, qty: 1, rev: 2, updatedAt: '2026-10-01T10:00:00Z', updatedBy: 'dev-honor' };
-    const remote = { ...base1, qty: 5, rev: 2, updatedAt: '2026-10-01T11:00:00Z', updatedBy: 'dev-iphone' };
+    const local = {
+      ...base1,
+      qty: 1,
+      rev: 2,
+      updatedAt: '2026-10-01T10:00:00Z',
+      updatedBy: 'dev-honor',
+    };
+    const remote = {
+      ...base1,
+      qty: 5,
+      rev: 2,
+      updatedAt: '2026-10-01T11:00:00Z',
+      updatedBy: 'dev-iphone',
+    };
 
     const r = mergeEntities({ milk: 1 }, map(local), map(remote), 'shopping', NOW);
 
@@ -121,8 +138,20 @@ describe('tombstone: удалённое не воскресает (PROJECT.md §
 
   it('удаление НЕ перетирается одновременной правкой с другого устройства — это конфликт', () => {
     const base = item('milk');
-    const deleted = { ...base, deletedAt: NOW, rev: 2, updatedAt: '2026-10-01T10:00:00Z', updatedBy: 'dev-A' };
-    const edited: ShoppingItem = { ...base, qty: 3, rev: 2, updatedAt: '2026-10-01T11:00:00Z', updatedBy: 'dev-B' };
+    const deleted = {
+      ...base,
+      deletedAt: NOW,
+      rev: 2,
+      updatedAt: '2026-10-01T10:00:00Z',
+      updatedBy: 'dev-A',
+    };
+    const edited: ShoppingItem = {
+      ...base,
+      qty: 3,
+      rev: 2,
+      updatedAt: '2026-10-01T11:00:00Z',
+      updatedBy: 'dev-B',
+    };
     const r = mergeEntities({ milk: 1 }, map(deleted), map(edited), 'shopping', NOW);
     expect(r.conflicts).toHaveLength(1);
     // победитель — более поздняя правка (qty=3), tombstone сохранён как loser для Диагностики

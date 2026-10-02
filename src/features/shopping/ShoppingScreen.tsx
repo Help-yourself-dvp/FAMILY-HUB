@@ -380,6 +380,22 @@ export function AddShoppingSheet({
   // Массовый ввод (просьба владельца): «бананы 4 шт, хлеб, порошок» — каждая часть
   // разбирается отдельно; категория подтягивается из прошлых покупок с тем же
   // названием, чтобы в магазине группа «По категориям» наполнялась сама.
+  // Справочник категорий (приёмка 0.3.3): список семьи хранится в kv и
+  // пополняется сам — любая сохранённая категория попадает в список. Плюс все
+  // категории уже лежащих позиций (они приходят с синхронизацией с других
+  // устройств), поэтому список общий для семьи без отдельного файла.
+  const catList = useLiveQuery(async () => {
+    const items = await db.shopping.toArray();
+    const saved = (await kvGet<string[]>('shopping.categories')) ?? [];
+    const set = new Set<string>(saved);
+    for (const i of items) {
+      const c = i.category?.trim();
+      if (c) set.add(c);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, 'ru'));
+  }, []);
+  const [catTouched, setCatTouched] = useState(false);
+
   const segments = useMemo(
     () =>
       text
@@ -388,6 +404,26 @@ export function AddShoppingSheet({
         .filter(Boolean),
     [text],
   );
+
+  // Одна позиция и категория ещё не тронута рукой — подставляем категорию
+  // прошлой покупки с тем же названием (владелец видел это как «магию» сохранения;
+  // теперь она видна сразу в поле).
+  useEffect(() => {
+    if (editing || catTouched) return;
+    const single = segments[0];
+    if (segments.length !== 1 || !single) return;
+    let alive = true;
+    void db.shopping
+      .where('canonicalKey')
+      .equals(canonicalKey(single))
+      .first()
+      .then((prev) => {
+        if (alive && prev?.category) setCategory(prev.category);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [segments, editing, catTouched]);
 
   const submit = async () => {
     const raw = text.trim();
@@ -415,6 +451,7 @@ export function AddShoppingSheet({
             if (prev?.category) parsedSeg.category = prev.category;
           }
           await shoppingRepo.add(parsedSeg);
+          if (parsedSeg.category) await rememberCategory(parsedSeg.category);
           added += 1;
         }
         if (added === 0) {
@@ -449,6 +486,7 @@ export function AddShoppingSheet({
       } else {
         await shoppingRepo.add(parsed);
       }
+      if (parsed.category) await rememberCategory(parsed.category);
       setText('');
       onClose();
     } catch (e) {
@@ -507,15 +545,40 @@ export function AddShoppingSheet({
           </div>
         </div>
 
+        {!editing && catList && catList.length > 0 && (
+          <div className="field">
+            <span className="field-label">Категория — тап выберите из списка семьи</span>
+            <div className="chips" role="group" aria-label="Категории">
+              {catList.map((cn) => (
+                <button
+                  key={cn}
+                  type="button"
+                  className="chip"
+                  aria-pressed={category === cn}
+                  onClick={() => {
+                    setCategory(cn);
+                    setCatTouched(true);
+                  }}
+                >
+                  {cn}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <Field
           label="Категория"
-          hint="Необязательно. Категория группирует список в магазине: переключите «По категориям» на экране покупок."
+          hint="Можно выбрать из списка выше или вписать свою — она добавится в список семьи и в следующий раз будет на кнопке."
         >
           <input
             className="input"
             value={category}
             placeholder="Например: Молочное"
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={(e) => {
+              setCategory(e.target.value);
+              setCatTouched(true);
+            }}
             onFocus={revealOnFocus}
           />
         </Field>
@@ -591,5 +654,15 @@ export function AddShoppingSheet({
         </div>
       </div>
     </Sheet>
+  );
+}
+
+/** Новая категория пополняет справочник семьи на этом устройстве (kv). */
+async function rememberCategory(name: string): Promise<void> {
+  const cur = (await kvGet<string[]>('shopping.categories')) ?? [];
+  if (cur.includes(name)) return;
+  await kvSet(
+    'shopping.categories',
+    [...cur, name].sort((a, b) => a.localeCompare(b, 'ru')),
   );
 }

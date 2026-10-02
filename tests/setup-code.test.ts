@@ -64,7 +64,9 @@ describe('parseSetupCode отклонывает мусор внятной оши
 
   it('устаревший или чужой префикс', () => {
     const code = encodeSetupCode(PAYLOAD);
-    expect(() => parseSetupCode(`FHSETUP0.${code.split('.')[1]}.${code.split('.')[2]}`)).toThrow(/не код подключения/);
+    expect(() => parseSetupCode(`FHSETUP0.${code.split('.')[1]}.${code.split('.')[2]}`)).toThrow(
+      /не код подключения/,
+    );
   });
 });
 

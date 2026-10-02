@@ -163,6 +163,18 @@
 }
 
 /* ---------- Нижняя навигация ---------- */
+.topbar-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-2);
+}
 .tabbar {
   position: fixed;
   left: 0;

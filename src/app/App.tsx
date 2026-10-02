@@ -206,14 +206,45 @@ const ROUTE_TITLES: Record<string, string> = {
  * Приёмка 0.1.5: раньше статус занимал первую строку один, а название приложения
  * начиналось ниже — место съедалось зря.
  */
+/** Короткая справка раздела (просьба владельца 2026-10-02): пара слов, зачем блок. */
+const HELP_TEXTS: Record<string, string> = {
+  '/': 'Главный экран: счётчики, ближайшие сроки и семейная лента — кто что добавил, купил или изменил.',
+  '/shopping':
+    'Общий список покупок семьи: добавили на своём телефоне — появилось у всех, отметили купленным — пропало у всех. Работает без интернета — список дождётся сети и синхронизируется сам.',
+  '/tasks': 'Дела — кто что обещал сделать, со сроком и статусом. Модуль в разработке.',
+  '/deadlines':
+    'Сроки: документы, ТО, страховки, дни рождения — всё, у чего есть дата. Приложение напомнит заранее, а цвет рамки показывает срочность; правила цвета настраиваются в форме срока.',
+  '/settings':
+    'Подключение к семейному хранилищу, уведомления, данные устройства и диагностика. Здесь же видно версию приложения.',
+};
+
 function TopBar() {
   const loc = useLocation();
   const title = ROUTE_TITLES[loc.pathname] ?? 'Family Hub';
+  const help = HELP_TEXTS[loc.pathname];
+  const [helpOpen, setHelpOpen] = useState(false);
   return (
-    <div className="topbar">
-      <div className="topbar-title truncate">{title}</div>
-      <StatusPill />
-    </div>
+    <>
+      <div className="topbar">
+        <div className="topbar-title truncate">{title}</div>
+        {help && (
+          <button
+            type="button"
+            className="topbar-help"
+            aria-label={`О разделе «${title}»`}
+            onClick={() => setHelpOpen(true)}
+          >
+            <Icon name="info" size={17} />
+          </button>
+        )}
+        <StatusPill />
+      </div>
+      <Sheet open={helpOpen} title={`О разделе «${title}»`} onClose={() => setHelpOpen(false)}>
+        <p className="small" style={{ margin: 0 }}>
+          {help}
+        </p>
+      </Sheet>
+    </>
   );
 }
 

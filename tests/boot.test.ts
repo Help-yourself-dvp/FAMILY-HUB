@@ -17,7 +17,13 @@ import { shoppingRepo } from '../src/data/repositories';
 beforeEach(async () => {
   // Чистое хранилище = «первый запуск на устройстве».
   await db.transaction('rw', [db.shopping, db.tasks, db.deadlines, db.members, db.kv], async () => {
-    await Promise.all([db.shopping.clear(), db.tasks.clear(), db.deadlines.clear(), db.members.clear(), db.kv.clear()]);
+    await Promise.all([
+      db.shopping.clear(),
+      db.tasks.clear(),
+      db.deadlines.clear(),
+      db.members.clear(),
+      db.kv.clear(),
+    ]);
   });
 });
 

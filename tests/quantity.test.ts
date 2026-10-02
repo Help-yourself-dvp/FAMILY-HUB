@@ -19,7 +19,11 @@ describe('parseQuickQuantity', () => {
     expect(parseQuickQuantity('сок 7 дней')).toEqual({ name: 'сок 7 дней', qty: null, unit: null });
   });
   it('«пакет молока 2» → количество извлечено, ключ без него', () => {
-    expect(parseQuickQuantity('пакет молока 2')).toEqual({ name: 'пакет молока', qty: 2, unit: null });
+    expect(parseQuickQuantity('пакет молока 2')).toEqual({
+      name: 'пакет молока',
+      qty: 2,
+      unit: null,
+    });
   });
   it('пустая строка', () => {
     expect(parseQuickQuantity('')).toEqual({ name: '', qty: null, unit: null });

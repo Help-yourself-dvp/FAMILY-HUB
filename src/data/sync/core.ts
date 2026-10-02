@@ -64,6 +64,8 @@ export interface RemoteChangeEvent {
   actorId: string;
   /** Менялось ли что-то человекочитаемое (название/количество/категория). */
   meaningful: boolean;
+  /** Категория покупки — для строки «куда добавлено» в семейной ленте. */
+  category?: string | null;
 }
 
 type ShoppingLike = { title?: string; qty?: number | null; category?: string | null };
@@ -170,6 +172,7 @@ async function attemptSync<T extends Syncable>(
         prev.title !== titled.title ||
         prev.qty !== (next as ShoppingLike).qty ||
         prev.category !== (next as ShoppingLike).category,
+      category: (next as ShoppingLike).category ?? null,
     });
   }
 

@@ -24,7 +24,7 @@ import {
 export type { LocalStorePort, RemoteStorePort } from './core';
 import { setSyncState } from './state';
 import { log } from '../../shared/log';
-import { appendActivity } from '../repositories';
+import { appendActivity, placeLabel } from '../repositories';
 import type { EntityKind, Syncable } from '../../domain/types';
 import { ENTITY_KINDS } from '../../domain/types';
 
@@ -155,10 +155,12 @@ export async function syncNow(_reason: string): Promise<void> {
           // не пополняет: иначе технические циклы затапливали её (приёмка 0.1.9).
           if (ev.action === 'updated' && !ev.meaningful) continue;
           const member = await db.members.get(ev.actorId);
-          void appendActivity(ev.action, ev.title, {
-            id: ev.actorId,
-            name: member?.name || 'Семья',
-          });
+          void appendActivity(
+            ev.action,
+            ev.title,
+            { id: ev.actorId, name: member?.name || 'Семья' },
+            { kind: o.kind, place: placeLabel(o.kind, ev.category) },
+          );
         }
       } else if (!failure) {
         const e = o.err;
