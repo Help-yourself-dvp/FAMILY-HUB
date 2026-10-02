@@ -10,7 +10,8 @@
  *   1 ics-calendar     — работает всегда, ноль инфраструктуры, ЭКРАН ВЫКЛЮЧЕН ✓
  *   2 web-push         — требует GitHub Actions + VAPID, проверяется на устройствах
  */
-import { kvGet, KV_KEYS } from '../data/db';
+import { db, kvGet, KV_KEYS } from '../data/db';
+import { downloadIcs } from './ics';
 import { log } from '../shared/log';
 import { loadSession } from '../data/session';
 import { auth } from '../data/remote/authStrategy';
@@ -171,7 +172,7 @@ class IcsCalendarChannel implements NotificationChannel {
   readonly id = 'ics-calendar' as const;
   readonly label = 'Календарь телефона (ICS)';
   readonly description =
-    'Критичные даты выгружаются в нативный календарь iOS/Android. Напомнит сам телефон — даже если приложение закрыто, а интернет недоступен.';
+    'Резервный канал: скачивает файл календаря (.ics) со всеми сроками — телефон добавит их в системный календарь и напомнит сам, даже если сайт и push откажут. Повторите включение после изменения сроков.';
   readonly worksScreenOff = true;
   readonly needsExternalInfra = false;
   readonly level = 1 as const;
@@ -183,8 +184,21 @@ class IcsCalendarChannel implements NotificationChannel {
       supported: typeof window !== 'undefined' && typeof Blob !== 'undefined',
     });
   }
-  enable(): Promise<EnableResult> {
-    return Promise.resolve({ enabled: true });
+  async enable(): Promise<EnableResult> {
+    try {
+      const deadlines = await db.deadlines.toArray();
+      const live = deadlines.filter((d) => !d.deletedAt);
+      if (live.length === 0) {
+        return { enabled: false, reason: 'Сроков пока нет — добавьте срок, затем включите канал' };
+      }
+      downloadIcs(live);
+      return {
+        enabled: true,
+        reason: `Файл календаря скачан (${live.length} событий) — подтвердите добавление в календарь телефона`,
+      };
+    } catch (e) {
+      return { enabled: false, reason: e instanceof Error ? e.message : String(e) };
+    }
   }
   disable(): Promise<void> {
     return Promise.resolve();

@@ -12,6 +12,7 @@ import { deadlinesRepo } from '../../data/repositories';
 import { daysUntil, formatRu, humanizeDelta, isDateOnly, parseRuDate } from '../../domain/dateOnly';
 import type { Deadline, DeadlineKind } from '../../domain/types';
 import { Banner, Field, Icon, Sheet, Skeleton } from '../../design/ui';
+import { downloadIcs } from '../../notifications/ics';
 import {
   deadlineTone,
   KIND_THRESHOLDS,
@@ -133,6 +134,16 @@ export default function DeadlinesScreen({ ready }: { ready: boolean }) {
         onClick={() => setComposeOpen(true)}
       >
         <Icon name="plus" size={20} /> Добавить срок
+      </button>
+      <button
+        type="button"
+        className="btn btn--block"
+        style={{ marginTop: 'var(--sp-2)' }}
+        onClick={() => {
+          void db.deadlines.toArray().then((all) => downloadIcs(all.filter((d) => !d.deletedAt)));
+        }}
+      >
+        <Icon name="calendar" size={20} /> В календарь телефона (резервно)
       </button>
 
       {composeOpen && <DeadlineSheet onClose={() => setComposeOpen(false)} />}
