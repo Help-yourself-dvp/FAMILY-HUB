@@ -54,7 +54,7 @@ export default function NotificationsSection() {
   const toggle = useCallback(async (id: string, on: boolean) => {
     const ch = notificationChannels.byId(id as 'local-foreground');
     if (!ch) return;
-    if (on && ch.level === 0) {
+    if (on) {
       try {
         const res = await ch.enable();
         setEnabled((p) => ({ ...p, [id]: res.enabled }));
@@ -68,6 +68,13 @@ export default function NotificationsSection() {
         setNotice({ tone: 'err', text: describeEnableError(e) });
       }
       return;
+    }
+    if (ch.level === 2) {
+      try {
+        await ch.disable();
+      } catch {
+        // Отписка не критична: отправитель удалит мёртвую подписку сам.
+      }
     }
     setEnabled((p) => ({ ...p, [id]: on }));
   }, []);
@@ -164,7 +171,7 @@ function ChannelCard({
   onToggle: (v: boolean) => void;
 }) {
   const unsupported = Boolean(support && !support.supported);
-  const disabled = unsupported || c.level === 2; // уровень 2 ждёт проверки на устройствах (§2.4, ЭТАП 3)
+  const disabled = unsupported; // ЭТАП 3 собран: уровень 2 включается пользователем
 
   return (
     <div className="card stack" style={{ gap: 'var(--sp-3)' }}>

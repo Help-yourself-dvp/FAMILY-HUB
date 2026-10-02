@@ -11,6 +11,7 @@
  *   2 web-push         — требует GitHub Actions + VAPID, проверяется на устройствах
  */
 import { kvGet, KV_KEYS } from '../data/db';
+import { log } from '../shared/log';
 import { loadSession } from '../data/session';
 import { auth } from '../data/remote/authStrategy';
 import { GitHubClient } from '../data/remote/githubClient';
@@ -247,6 +248,7 @@ class WebPushChannel implements NotificationChannel {
   async enable(): Promise<EnableResult> {
     const s = await this.isSupported();
     if (!s.supported) return { enabled: false, reason: s.reason };
+    log.emit({ type: 'push:step', step: 'enable-start' });
 
     const owner = await kvGet<string>(KV_KEYS.remoteOwner);
     const repo = await kvGet<string>(KV_KEYS.remoteRepo);
@@ -262,6 +264,7 @@ class WebPushChannel implements NotificationChannel {
       };
     }
     const perm = await Notification.requestPermission();
+    log.emit({ type: 'push:step', step: `permission-${perm}` });
     if (perm !== 'granted') {
       return { enabled: false, reason: 'Разрешение на уведомления не получено' };
     }
@@ -274,16 +277,23 @@ class WebPushChannel implements NotificationChannel {
     } catch {
       return { enabled: false, reason: 'Не удалось прочитать конфигурацию push (vapid.json)' };
     }
+    log.emit({ type: 'push:step', step: vapidPublicKey ? 'vapid-ok' : 'vapid-missing' });
     if (!vapidPublicKey) return { enabled: false, reason: 'Push ещё не настроен владельцем' };
 
     const reg = await navigator.serviceWorker.ready;
     const existing = await reg.pushManager.getSubscription();
     const sub =
       existing ??
-      (await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToArrayBuffer(vapidPublicKey),
-      }));
+      (await reg.pushManager
+        .subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToArrayBuffer(vapidPublicKey),
+        })
+        .catch((e) => {
+          log.emit({ type: 'push:step', step: 'subscribe-failed' });
+          throw e;
+        }));
+    log.emit({ type: 'push:step', step: 'subscribe-ok' });
 
     const deviceId = (await loadSession()).deviceId;
     const client = new GitHubClient({ owner, repo, branch }, () => auth.getToken());
@@ -305,6 +315,7 @@ class WebPushChannel implements NotificationChannel {
       sha,
       `push: подписка устройства ${deviceId}`,
     );
+    log.emit({ type: 'push:step', step: 'upload-ok' });
     return { enabled: true };
   }
 

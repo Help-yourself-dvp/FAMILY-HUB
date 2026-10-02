@@ -264,6 +264,8 @@ export interface NewDeadlineInput {
   deadlineKind: Deadline['deadlineKind'];
   dueDate: DateOnly;
   remindersDays: number[];
+  alertDays?: number | null;
+  warnDays?: number | null;
 }
 
 export const deadlinesRepo = {
@@ -286,6 +288,8 @@ export const deadlinesRepo = {
       history: [],
       visibility: 'family',
       note: null,
+      alertDays: input.alertDays ?? null,
+      warnDays: input.warnDays ?? null,
     };
     await db.deadlines.put(item);
     await appendActivity('created', item.title);

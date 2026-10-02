@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { canonicalKey, foldYo, normalizeTitle, parseItem } from '../src/domain/normalize';
 
 describe('normalizeTitle', () => {
-  it('lowercase, trim, ё→е, пробелы, пунктуация', () => {
-    expect(normalizeTitle('  Молоко  Ёлка!! ')).toBe('молоко елка');
-    expect(normalizeTitle('Хлеб, чёрный — бородинский')).toBe('хлеб черный бородинский');
+  it('регистр пользователя сохраняется, первая буква поднимается, ё→е, пунктуация', () => {
+    expect(normalizeTitle('  Молоко  Ёлка!! ')).toBe('Молоко Елка');
+    expect(normalizeTitle('Хлеб, чёрный — бородинский')).toBe('Хлеб черный бородинский');
+    expect(normalizeTitle('бананы')).toBe('Бананы');
+    expect(normalizeTitle('йогурт Активия')).toBe('Йогурт Активия');
   });
 });
 
@@ -35,6 +37,6 @@ describe('canonicalKey — поиск дубликатов (ТЗ §18)', () => {
 
 describe('parseItem', () => {
   it('«бананы 2 кг»', () => {
-    expect(parseItem('бананы 2 кг')).toEqual({ title: 'бананы', qty: 2, unit: 'кг' });
+    expect(parseItem('бананы 2 кг')).toEqual({ title: 'Бананы', qty: 2, unit: 'кг' });
   });
 });

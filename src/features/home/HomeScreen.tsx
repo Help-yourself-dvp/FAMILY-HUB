@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
 import { daysUntil, formatRu, humanizeDelta } from '../../domain/dateOnly';
+import { deadlineTone, TONE_COLOR } from '../../domain/deadlineRules';
 import { HORIZON_LABEL, type Horizon } from '../../domain/types';
 import { Banner, Icon, Skeleton, Stat } from '../../design/ui';
 import { useSyncState } from '../../app/hooks';
@@ -117,7 +118,8 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
           <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
             {deadlines.slice(0, 3).map((d) => {
               const left = daysUntil(d.dueDate);
-              const tone = left < 0 ? 'var(--err)' : left <= 30 ? 'var(--warn)' : 'var(--text-2)';
+              const toneKind = deadlineTone(d);
+              const tone = toneKind === 'ok' ? 'var(--text-2)' : TONE_COLOR[toneKind];
               return (
                 <div key={d.id} className="row" style={{ gap: 'var(--sp-3)' }}>
                   <div className="grow">

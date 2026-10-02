@@ -15,7 +15,8 @@ export type SyncLogEvent =
   | { type: 'http'; method: string; path: string; status: number; ms: number; code?: string }
   | { type: 'auth:changed'; present: boolean }
   | { type: 'app:installed' }
-  | { type: 'app:update-available' };
+  | { type: 'app:update-available' }
+  | { type: 'push:step'; step: string };
 
 const MAX_ENTRIES = 200;
 const ring: Array<{ at: string; event: SyncLogEvent }> = [];

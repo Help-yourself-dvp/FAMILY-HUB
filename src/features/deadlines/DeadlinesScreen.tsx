@@ -12,6 +12,12 @@ import { deadlinesRepo } from '../../data/repositories';
 import { daysUntil, formatRu, humanizeDelta, isDateOnly, parseRuDate } from '../../domain/dateOnly';
 import type { Deadline, DeadlineKind } from '../../domain/types';
 import { Banner, Field, Icon, Sheet, Skeleton } from '../../design/ui';
+import {
+  deadlineTone,
+  KIND_THRESHOLDS,
+  TONE_COLOR,
+  thresholdsFor,
+} from '../../domain/deadlineRules';
 import { useSyncState } from '../../app/hooks';
 
 export const KIND_LABEL: Record<DeadlineKind, string> = {
@@ -138,9 +144,14 @@ export default function DeadlinesScreen({ ready }: { ready: boolean }) {
 
 function DeadlineRow({ d, onEdit }: { d: Deadline; onEdit: (d: Deadline) => void }) {
   const left = daysUntil(d.dueDate);
-  const tone = left < 0 ? 'var(--err)' : left <= 30 ? 'var(--warn)' : 'var(--text-2)';
+  const toneKind = deadlineTone(d);
+  const color = toneKind === 'ok' ? 'var(--text-2)' : TONE_COLOR[toneKind];
+  const t = thresholdsFor(d);
   return (
-    <div className="item">
+    <div
+      className="item"
+      style={{ borderLeft: `4px solid ${TONE_COLOR[toneKind]}`, paddingLeft: 'var(--sp-3)' }}
+    >
       <button
         type="button"
         className="grow item-hit"
@@ -152,11 +163,12 @@ function DeadlineRow({ d, onEdit }: { d: Deadline; onEdit: (d: Deadline) => void
           {KIND_LABEL[d.deadlineKind]} · {formatRu(d.dueDate)} · напоминания:{' '}
           {d.remindersDays.length
             ? d.remindersDays.map((r) => (r === 0 ? 'в день' : r)).join(', ')
-            : 'нет'}
+            : 'нет'}{' '}
+          · цвет: красный за {t.alertDays}, жёлтый за {t.warnDays} дн.
         </div>
       </button>
       <div className="stack" style={{ alignItems: 'flex-end', gap: 4 }}>
-        <span className="badge" style={{ color: tone, borderColor: tone }}>
+        <span className="badge" style={{ color, borderColor: color }}>
           {left < 0 ? `просрочено ${-left} дн.` : humanizeDelta(left)}
         </span>
         <button
@@ -178,6 +190,12 @@ function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: De
   const [date, setDate] = useState(editing?.dueDate ?? '');
   const [steps, setSteps] = useState<number[]>(editing?.remindersDays ?? [30, 7, 0]);
   const [customStep, setCustomStep] = useState('');
+  const [alertD, setAlertD] = useState<number>(
+    editing?.alertDays ?? KIND_THRESHOLDS[editing?.deadlineKind ?? 'document'].alertDays,
+  );
+  const [warnD, setWarnD] = useState<number>(
+    editing?.warnDays ?? KIND_THRESHOLDS[editing?.deadlineKind ?? 'document'].warnDays,
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -206,6 +224,8 @@ function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: De
           deadlineKind: kind,
           dueDate: due,
           remindersDays: steps,
+          alertDays: alertD,
+          warnDays: warnD,
         });
       } else {
         await deadlinesRepo.add({
@@ -213,6 +233,8 @@ function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: De
           deadlineKind: kind,
           dueDate: due,
           remindersDays: steps,
+          alertDays: alertD,
+          warnDays: warnD,
         });
       }
       onClose();
@@ -244,11 +266,44 @@ function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: De
                 type="button"
                 className="chip"
                 aria-pressed={kind === k}
-                onClick={() => setKind(k)}
+                onClick={() => {
+                  setKind(k);
+                  // Цветовые правила подставляются из типа (можно поправить ниже).
+                  setAlertD(KIND_THRESHOLDS[k].alertDays);
+                  setWarnD(KIND_THRESHOLDS[k].warnDays);
+                }}
               >
                 {KIND_LABEL[k]}
               </button>
             ))}
+          </div>
+        </div>
+        <div className="field">
+          <span className="field-label">Цвет рамки: красный и жёлтый за сколько дней</span>
+          <div className="row" style={{ gap: 'var(--sp-2)' }}>
+            <input
+              className="input grow"
+              type="number"
+              min={0}
+              max={3650}
+              inputMode="numeric"
+              value={alertD}
+              aria-label="Красным за N дней"
+              onChange={(e) => setAlertD(Math.max(0, Number(e.target.value) || 0))}
+            />
+            <input
+              className="input grow"
+              type="number"
+              min={0}
+              max={3650}
+              inputMode="numeric"
+              value={warnD}
+              aria-label="Жёлтым за N дней"
+              onChange={(e) => setWarnD(Math.max(0, Number(e.target.value) || 0))}
+            />
+          </div>
+          <div className="tiny muted" style={{ marginTop: 4 }}>
+            Например: налог — красный за 7, жёлтый за 14; загранпаспорт — жёлтый за 365.
           </div>
         </div>
         <Field label="Дата" hint="ДД.ММ.ГГГГ или выбор в календаре">

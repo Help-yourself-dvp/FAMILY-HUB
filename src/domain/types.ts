@@ -94,6 +94,12 @@ export interface Deadline extends Syncable {
   history: Array<{ dueDate: DateOnly; replacedAt: string; replacedBy: string }>;
   /** Видимость: семья / только владелец (§6.21, упрощённо). */
   visibility: 'family' | 'private';
+  /**
+   * Пороги цветовой тревоги в днях (просьба владельца 2026-10-01): красный и
+   * жёлтый. Пусто — пресет по типу срока (domain/deadlineRules.ts).
+   */
+  alertDays?: number | null;
+  warnDays?: number | null;
   ownerId?: string | null;
   note: string | null;
 }

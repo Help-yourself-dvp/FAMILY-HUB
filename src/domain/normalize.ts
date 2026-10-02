@@ -20,9 +20,16 @@ export function collapseSpaces(s: string): string {
   return s.replace(/\s+/gu, ' ').trim();
 }
 
-/** Базовая нормализация: lowercase + trim + ё→е + пробелы + пунктуация. */
+/**
+ * Приведение названия (просьба владельца 2026-10-01): регистр ПОЛЬЗОВАТЕЛЯ
+ * сохраняется, первая буква поднимается в верхний. «бананы 4 шт, Йогурт Активия»
+ * → «Бананы», «Йогурт Активия». На поиск дубликатов не влияет: canonicalKey
+ * дополнительно приводится к нижнему регистру.
+ */
 export function normalizeTitle(raw: string): string {
-  return collapseSpaces(stripPunctuation(foldYo(raw)).toLowerCase());
+  const cleaned = collapseSpaces(stripPunctuation(foldYo(raw)));
+  if (!cleaned) return cleaned;
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
 /**
@@ -33,7 +40,7 @@ export function normalizeTitle(raw: string): string {
 export function canonicalKey(raw: string): string {
   const parsed = parseQuickQuantity(normalizeTitle(raw));
   const words = parsed.name.split(' ').filter((w) => w.length > 0);
-  return words.join(' ');
+  return words.join(' ').toLowerCase();
 }
 
 export interface ParsedInput {
