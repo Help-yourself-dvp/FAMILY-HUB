@@ -84,6 +84,12 @@ describe('Форма из «+»: запрос одноразовый', () => {
     expect(screen.queryByRole('dialog', { name: sheetTitle })).toBeNull();
   });
 
+  it('в тестовом окружении есть заглушка прокрутки к полю формы', () => {
+    // Без неё отложенный scrollIntoView из формы покупки падает после закрытия формы
+    // (jsdom этого метода не умеет) и роняет файл тестов на сервере проверок.
+    expect(typeof Element.prototype.scrollIntoView).toBe('function');
+  });
+
   it('обычный переход по вкладке «Сроки» форму не открывает', async () => {
     render(<App ready />);
     const nav = await screen.findByRole('navigation', { name: 'Основная навигация' });
