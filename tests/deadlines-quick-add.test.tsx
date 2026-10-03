@@ -201,7 +201,7 @@ describe('Сроки и календарь: галочка при сохране
     );
   });
 
-  it('на iPhone ничего не открывается, а окно ведёт к файлу в Календарь iPhone', async () => {
+  it('на iPhone системное окно календаря открывается сразу после «Добавить»', async () => {
     Object.defineProperty(window.navigator, 'userAgent', {
       configurable: true,
       get: () => IPHONE_UA,
@@ -212,20 +212,56 @@ describe('Сроки и календарь: галочка при сохране
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
-    // Само ничего не открывается: сначала вопрос, затем — системное окно календаря.
+    // Открывается синхронно, из самого нажатия: Safari принимает окно только от человека.
+    expect(openWindow).toHaveBeenCalledTimes(1);
+    expect(String(openWindow.mock.calls[0]?.[0]).startsWith('blob:')).toBe(true);
+    const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
+    const text = await blob.text();
+    expect(text).toContain('SUMMARY:[Срок] Срок для iPhone');
+    expect(text).toContain('DTSTART;TZID=Europe/Moscow:20270801T090000');
+    expect(text.match(/BEGIN:VALARM/gu)?.length).toBe(3);
+
     await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
-    expect(openWindow).not.toHaveBeenCalled();
+    // Окно-вопрос не нужно: система уже спрашивает сама. Видна только короткая подсказка.
+    expect(screen.queryByTestId('calendar-prompt')).toBeNull();
+    await waitFor(() => expect(screen.getByText(/Открылось системное окно события/u)).toBeTruthy());
+  });
+
+  it('на iPhone: если браузер заблокировал окно, показывается подстраховка', async () => {
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      get: () => IPHONE_UA,
+    });
+    openWindow.mockReturnValue(null);
+    render(<App ready />);
+    await openDeadlineTab();
+    const form = await fillNewDeadline('Срок с блокировкой', '2027-08-02');
+    const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
+    fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
     const prompt = await screen.findByTestId('calendar-prompt');
     expect(within(prompt).getByRole('button', { name: 'Открыть окно события' })).toBeTruthy();
     expect(within(prompt).getByRole('button', { name: 'Скачать файлом' })).toBeTruthy();
-    // Google-ссылки на iPhone нет: приложением Google Календаря там не пользуются.
+    // Google-ссылки на iPhone нет.
     expect(within(prompt).queryByRole('link', { name: /Google/u })).toBeNull();
+  });
 
-    fireEvent.click(within(prompt).getByRole('button', { name: 'Открыть окно события' }));
-    await waitFor(() => expect(openWindow).toHaveBeenCalledTimes(1));
-    expect(String(openWindow.mock.calls[0]?.[0]).startsWith('blob:')).toBe(true);
-    await waitFor(() => expect(screen.getByText(/Открылось системное окно события/u)).toBeTruthy());
+  it('на iPhone без галочки ничего не открывается и не спрашивается', async () => {
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      get: () => IPHONE_UA,
+    });
+    render(<App ready />);
+    await openDeadlineTab();
+    const form = await fillNewDeadline('iPhone без галочки', '2027-08-03');
+    fireEvent.click(within(form).getByRole('checkbox', { name: 'Добавить в календарь телефона' }));
+    const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
+    fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
+
+    await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
+    expect(openWindow).not.toHaveBeenCalled();
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('calendar-prompt')).toBeNull();
   });
 
   it('на компьютере само ничего не открывается, а Google-ссылка ведёт на веб-форму', async () => {

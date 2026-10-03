@@ -17,6 +17,7 @@ import {
   calendarExportSummary,
   downloadIcs,
   downloadSingleDeadlineIcs,
+  draftDeadlineForCalendar,
   isAndroidClient,
   isIosClient,
   openSingleDeadlineIcs,
@@ -92,9 +93,18 @@ export default function DeadlinesScreen({
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   }, [rows]);
 
-  const handleSaved = (d: Deadline, addToCalendar: boolean) => {
-    setCalendarNotice(null);
-    setCalendarPrompt(addToCalendar ? { deadline: d } : null);
+  const handleSaved = (d: Deadline, addToCalendar: boolean, openedOnIos = false) => {
+    // На iPhone системное окно уже открылось из самого нажатия «Добавить»: остаётся
+    // выбрать календарь и подтвердить. Окно-вопрос показываем только как подстраховку.
+    setCalendarNotice(
+      openedOnIos
+        ? {
+            tone: 'ok',
+            text: 'Открылось системное окно события: выберите календарь и нажмите «Добавить». Если окно не появилось — нажмите «Скачать файлом» в окне ниже.',
+          }
+        : null,
+    );
+    setCalendarPrompt(addToCalendar && !openedOnIos ? { deadline: d } : null);
   };
 
   /**
@@ -300,6 +310,12 @@ export default function DeadlinesScreen({
               </button>
             </div>
             <div className="tiny muted">{calendarHelp}</div>
+            {!ios && (
+              <div className="tiny muted">
+                Файл занимает около 1 КБ и остаётся в «Загрузках» — при желании удалите его там;
+                через ленту (подписку) в будущем файлы не понадобятся вовсе.
+              </div>
+            )}
           </div>
         </Banner>
       )}
@@ -367,8 +383,11 @@ function DeadlineSheet({
 }: {
   onClose: () => void;
   editing?: Deadline | null;
-  /** Вызывается после сохранения: экран покажет окно-вопрос про календарь. */
-  onSaved?: (d: Deadline, addToCalendar: boolean) => void;
+  /**
+   * Вызывается после сохранения. Третий аргумент — удалось ли уже открыть системное окно
+   * календаря на iPhone (тогда окно-вопрос не нужно, только подстраховка).
+   */
+  onSaved?: (d: Deadline, addToCalendar: boolean, openedOnIos?: boolean) => void;
 }) {
   const [title, setTitle] = useState(editing?.title ?? '');
   const [kind, setKind] = useState<DeadlineKind>(editing?.deadlineKind ?? 'document');
@@ -410,12 +429,15 @@ function DeadlineSheet({
     }
     setBusy(true);
     setError(null);
-    // Календарь открываем СИНХРОННО, до любых await: Chrome запускает внешнее
-    // приложение только из действия человека, а после ожидания жест «сгорает»
-    // (developer.chrome.com/docs/android/intents). Данные для ссылки — из формы,
-    // сохранение срока к ссылке не относится.
-    // На iPhone (kind = none) не открываем ничего: веб-форма Google там бесполезна,
-    // а окно создания в Календаре Apple недоступно сайту — человека ведёт окно экрана.
+    // iPhone: системное окно календаря открываем СИНХРОННО, из самого нажатия
+    // «Добавить». Safari показывает окно события только по действию человека, а после
+    // ожиданий жест «сгорает». Данные берём из формы (черновик) — сохранение срока
+    // это окно не задерживает. Если браузер вкладку заблокирует, экран покажет
+    // подстраховку (окно-вопрос с «Открыть окно события» и «Скачать файлом»).
+    const iosWindow =
+      addToCalendar && isIosClient()
+        ? openSingleDeadlineIcs(draftDeadlineForCalendar({ title: raw, dueDate: due }, steps))
+        : false;
     try {
       await kvSet(KV_KEYS.notifyCalendarAddOnSave, addToCalendar);
       const patch = {
@@ -431,7 +453,7 @@ function DeadlineSheet({
         : await deadlinesRepo.add(patch);
       onClose();
       const deadline = saved ?? (editing ? { ...editing, ...patch } : null);
-      if (deadline) onSaved?.(deadline, addToCalendar);
+      if (deadline) onSaved?.(deadline, addToCalendar, iosWindow);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Неизвестная ошибка');
     } finally {

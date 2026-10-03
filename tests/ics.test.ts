@@ -13,6 +13,7 @@ import {
   calendarTestDeadline,
   downloadIcs,
   downloadSingleDeadlineIcs,
+  draftDeadlineForCalendar,
   escapeIcsText,
   foldIcsLine,
   googleCalendarUrl,
@@ -202,6 +203,17 @@ describe('календарь: одно событие и окно создани
     const date = await downloadSingleDeadlineIcs(dl({ id: 'a' }));
     expect(date).toBe('2026-11-15');
     expect(createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it('черновик события собирается из полей формы и несёт её ступени напоминаний', () => {
+    const draft = draftDeadlineForCalendar({ title: 'Из формы', dueDate: '2027-05-01' }, [7, 0]);
+    const ics = buildSingleDeadlineIcs(draft, { now: new Date('2026-10-03T12:00:00Z') });
+    expect(ics).toContain('SUMMARY:[Срок] Из формы');
+    expect(ics).toContain('DTSTART;TZID=Europe/Moscow:20270501T090000');
+    // Ровно те ступени, что выбраны в форме: за 7 дней и в день срока.
+    expect(ics.match(/BEGIN:VALARM/gu)?.length).toBe(2);
+    expect(ics).toContain('TRIGGER:-P7D');
+    expect(ics).toContain('TRIGGER:PT0S');
   });
 
   it('на iPhone файл открывается сразу в новой вкладке — системное окно Календаря', () => {

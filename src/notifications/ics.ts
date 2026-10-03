@@ -138,6 +138,39 @@ export function buildDeadlinesIcs(deadlines: Deadline[], opts: IcsBuildOptions =
 }
 
 /** Файл ровно с одним сроком: для добавления по одному, без повторного импорта всех. */
+/**
+ * Черновик события прямо из данных формы — до сохранения срока.
+ *
+ * Нужен, чтобы на iPhone системное окно календаря открывалось ИЗ САМОГО нажатия
+ * «Добавить» (Safari открывает окно и запускает загрузку только по действию человека;
+ * после ожиданий сохранения жест «сгорает»). Будильники берём из формы — те же ступени,
+ * что сохранятся у срока. UID черновой: событие добавляется один раз, этим файлом.
+ */
+export function draftDeadlineForCalendar(
+  d: Pick<Deadline, 'title' | 'dueDate'>,
+  remindersDays: number[] = [],
+): Deadline {
+  const at = new Date().toISOString();
+  return {
+    id: `family-hub-draft-${d.dueDate}`,
+    rev: 0,
+    kind: 'deadlines',
+    createdAt: at,
+    updatedAt: at,
+    updatedBy: 'local',
+    deletedAt: null,
+    title: d.title,
+    deadlineKind: 'document',
+    dueDate: d.dueDate,
+    remindersDays,
+    recurrence: { type: 'none' },
+    lastCompletedAt: null,
+    history: [],
+    visibility: 'family',
+    note: null,
+  };
+}
+
 export function buildSingleDeadlineIcs(deadline: Deadline, opts: IcsBuildOptions = {}): string {
   return icsContainer('Family Hub — срок', eventLines(deadline, opts.now ?? new Date()));
 }
