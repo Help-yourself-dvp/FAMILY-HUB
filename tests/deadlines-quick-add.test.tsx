@@ -79,6 +79,7 @@ describe('Сроки: оба пути добавления', () => {
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Новый срок' })).toBeNull());
+    await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
     expect((await db.deadlines.toArray()).map((row) => [row.title, row.dueDate])).toEqual([
       ['Учебный срок FAB', '2027-04-01'],
     ]);
@@ -136,7 +137,9 @@ describe('Сроки и календарь: галочка при сохране
     const created = new URL(`https://${data}`);
     expect(created.searchParams.get('text')).toBe('[Срок] Учебный срок календаря');
     expect(created.searchParams.get('dates')).toBe('20270501T090000/20270501T091500');
-    // Срок сохранён, а на экране — подсказка с запасным файлом.
+    // Срок сохранён (на медленном runner'е запись завершается позже открытия окна,
+    // которое происходит синхронно) — ждём и запись, и подсказку.
+    await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
     expect((await db.deadlines.toArray()).map((row) => row.title)).toEqual([
       'Учебный срок календаря',
     ]);
@@ -155,7 +158,9 @@ describe('Сроки и календарь: галочка при сохране
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
-    await waitFor(async () => expect((await db.deadlines.toArray()).length).toBe(1));
+    await waitFor(async () => expect((await db.deadlines.toArray()).length).toBe(1), {
+      timeout: 5000,
+    });
     expect(openWindow).not.toHaveBeenCalled();
     expect(screen.queryByText(/Сохранено. Сохраните событие в календаре/u)).toBeNull();
   });
@@ -167,7 +172,9 @@ describe('Сроки и календарь: галочка при сохране
     fireEvent.click(within(first).getByRole('checkbox', { name: 'Добавить в календарь телефона' }));
     const footer = first.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
-    await waitFor(async () => expect((await db.deadlines.toArray()).length).toBe(1));
+    await waitFor(async () => expect((await db.deadlines.toArray()).length).toBe(1), {
+      timeout: 5000,
+    });
     // Ждём закрытия формы: иначе на экране две кнопки «Добавить» (форма и круглый +).
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Новый срок' })).toBeNull());
 
@@ -223,7 +230,9 @@ describe('Сроки и календарь: галочка при сохране
     const form = await fillNewDeadline('Сверка ссылки', '2027-05-01');
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
-    await waitFor(async () => expect((await db.deadlines.toArray()).length).toBe(1));
+    await waitFor(async () => expect((await db.deadlines.toArray()).length).toBe(1), {
+      timeout: 5000,
+    });
     const sample = (await db.deadlines.toArray())[0]!;
     await waitFor(() =>
       expect(openWindow).toHaveBeenCalledWith(
