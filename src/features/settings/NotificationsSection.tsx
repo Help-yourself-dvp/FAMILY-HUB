@@ -20,14 +20,8 @@ import {
 } from '../../notifications/channels';
 import { GitHubError } from '../../data/remote/githubClient';
 import { Banner, Icon, Switch } from '../../design/ui';
-import { db, kvGet, kvSet, KV_KEYS } from '../../data/db';
-import {
-  calendarUpdateSummary,
-  downloadCalendarAlarmTest,
-  downloadCalendarTestIcs,
-  downloadCalendarUpdate,
-  resetCalendarExportMarks,
-} from '../../notifications/ics';
+import { kvGet, kvSet, KV_KEYS } from '../../data/db';
+import { downloadCalendarAlarmTest, downloadCalendarTestIcs } from '../../notifications/ics';
 import { formatRu } from '../../domain/dateOnly';
 
 export default function NotificationsSection() {
@@ -120,35 +114,6 @@ export default function NotificationsSection() {
       setBusyId(null);
     }
   }, []);
-
-  const fullCalendarExport = () => {
-    void (async () => {
-      try {
-        const rows = await db.deadlines.toArray();
-        const result = await downloadCalendarUpdate(rows, true);
-        setNotice(
-          result.eventCount > 0
-            ? { tone: 'ok', text: calendarUpdateSummary(result) }
-            : { tone: 'warn', text: 'Семейных сроков с датой пока нет — выгружать нечего.' },
-        );
-      } catch (e) {
-        setNotice({
-          tone: 'err',
-          text: e instanceof Error ? e.message : 'Не удалось подготовить файл календаря.',
-        });
-      }
-    })();
-  };
-
-  const resetCalendarMarks = () => {
-    void (async () => {
-      await resetCalendarExportMarks();
-      setNotice({
-        tone: 'ok',
-        text: 'Отметки выгрузки сброшены. Следующая выгрузка «только новое» снова включит в файл все семейные сроки.',
-      });
-    })();
-  };
 
   const testCalendarAlarm = () => {
     try {
@@ -251,8 +216,6 @@ export default function NotificationsSection() {
                   onToggle={(v) => void toggle(c.id, v)}
                   onCalendarTest={testCalendar}
                   onCalendarAlarmTest={testCalendarAlarm}
-                  onCalendarAll={fullCalendarExport}
-                  onCalendarReset={resetCalendarMarks}
                 />
               ))}
             </div>
@@ -271,8 +234,6 @@ function ChannelCard({
   onToggle,
   onCalendarTest,
   onCalendarAlarmTest,
-  onCalendarAll,
-  onCalendarReset,
 }: {
   channel: NotificationChannel;
   support: SupportReport | undefined;
@@ -281,8 +242,6 @@ function ChannelCard({
   onToggle: (v: boolean) => void;
   onCalendarTest: () => void;
   onCalendarAlarmTest: () => void;
-  onCalendarAll: () => void;
-  onCalendarReset: () => void;
 }) {
   const unsupported = Boolean(support && !support.supported);
   const checking = enabled === undefined;
@@ -343,24 +302,11 @@ function ChannelCard({
       {c.id === 'ics-calendar' && (
         <div className="stack">
           <p className="tiny muted" style={{ margin: 0 }}>
-            Открытие файла в Android-календаре не подтверждает импорт. Google описывает импорт через
-            веб-версию на компьютере: Настройки → Импорт и экспорт. Прямой импорт проверочного
-            события в Honor подтверждён владельцем; полную выгрузку проверьте по датам. События
-            стоят на датах сроков, не на датах каждого будильника.
+            Обычный способ добавления события — галочка «Добавить в календарь телефона» в форме
+            срока: открывается окно создания записи, сохранение подтверждаете вы. Здесь — проверки
+            календаря на этом телефоне. Файл со всеми сроками — в разделе Сроки: телефон добавляет
+            из файла все события сразу, поэтому для отдельных сроков он не нужен.
           </p>
-          <p className="tiny muted" style={{ margin: 0 }}>
-            Телефон при импорте показывает все события файла и добавляет их разом: выбрать часть
-            нельзя. Поэтому в Сроки есть выгрузка «только новое» и кнопка с календарём в строке
-            каждого срока — она отдаёт файл ровно с одним событием. Сайт не может сам записать
-            событие в календарь телефона (браузеру системный календарь недоступен): добавление
-            всегда подтверждает человек.
-          </p>
-          <button type="button" className="btn btn--sm" onClick={onCalendarAll}>
-            Полная выгрузка (все сроки)
-          </button>
-          <button type="button" className="btn btn--sm" onClick={onCalendarReset}>
-            Сбросить отметки выгрузки
-          </button>
           <button type="button" className="btn btn--sm" onClick={onCalendarTest}>
             Проверочный календарь: 1 событие
           </button>

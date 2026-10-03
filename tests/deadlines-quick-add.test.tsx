@@ -4,8 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/app/App';
 import { db, kvSet, KV_KEYS } from '../src/data/db';
 import { loadSession } from '../src/data/session';
-import { deadlinesRepo } from '../src/data/repositories';
-import { readCalendarExportMarks } from '../src/notifications/ics';
+import { googleCalendarUrl } from '../src/notifications/ics';
 
 beforeEach(async () => {
   await Promise.all([
@@ -88,42 +87,101 @@ describe('Сроки: оба пути добавления', () => {
   });
 });
 
-describe('Сроки и календарь: без повторной выгрузки всей семьи (приёмка 03.10)', () => {
-  const createObjectURL = vi.fn(() => 'blob:test-calendar');
+describe('Сроки и календарь: галочка при сохранении (решение владельца 03.10)', () => {
+  const openWindow = vi.fn();
 
   beforeEach(() => {
-    const holder = globalThis.URL as unknown as Record<string, unknown>;
-    holder.createObjectURL = createObjectURL;
-    holder.revokeObjectURL = vi.fn();
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    openWindow.mockReset().mockReturnValue({
+      location: { replace: vi.fn() },
+      close: vi.fn(),
+    });
+    vi.stubGlobal('open', openWindow);
   });
 
-  it('новый срок попадает в файл «только новое», уже выгруженный — нет', async () => {
+  async function fillNewDeadline(title: string, date: string) {
+    const form = await quickDeadline();
+    fireEvent.change(within(form).getByLabelText('Что за срок'), { target: { value: title } });
+    fireEvent.change(within(form).getByLabelText(/^Дата/u), { target: { value: date } });
+    return form;
+  }
+
+  it('с галочкой открывается окно создания события с названием и датой', async () => {
     render(<App ready />);
     await openDeadlineTab();
-    await deadlinesRepo.add({
-      title: 'Учебный срок календаря',
-      deadlineKind: 'document',
-      dueDate: '2027-05-01',
-      remindersDays: [30, 0],
-      alertDays: 30,
-      warnDays: 7,
-    });
-    const row = await screen.findByRole('button', {
-      name: 'В календарь: «Учебный срок календаря»',
-    });
+    const form = await fillNewDeadline('Учебный срок календаря', '2027-05-01');
+    expect(
+      within(form)
+        .getByRole('checkbox', { name: 'Добавить в календарь телефона' })
+        .getAttribute('aria-checked'),
+    ).toBe('true');
 
-    // Одиночное событие: файл ровно про этот срок, отметка поставлена.
-    fireEvent.click(row);
-    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
-    await screen.findByText(/Скачан файл с одним событием/u);
-    const marks = await readCalendarExportMarks();
-    expect(Object.keys(marks)).toHaveLength(1);
+    const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
+    fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
-    // Раз отметка есть, общая выгрузка «только новое» больше не предлагает событий.
+    await waitFor(() => expect(openWindow).toHaveBeenCalledTimes(1));
+    const opened = openWindow.mock.results[0]?.value as {
+      location: { replace: ReturnType<typeof vi.fn> };
+    };
+    await waitFor(() => expect(opened.location.replace).toHaveBeenCalledTimes(1));
+    const created = new URL(String(opened.location.replace.mock.calls[0]?.[0]));
+    expect(created.origin + created.pathname).toBe('https://calendar.google.com/calendar/render');
+    expect(created.searchParams.get('text')).toBe('[Срок] Учебный срок календаря');
+    expect(created.searchParams.get('dates')).toBe('20270501T090000/20270501T091500');
+    // Срок сохранён, а на экране — подсказка с запасным файлом.
+    expect((await db.deadlines.toArray()).map((row) => row.title)).toEqual([
+      'Учебный срок календаря',
+    ]);
+    await screen.findByText(/Сохранено. Сохраните событие в календаре/u);
+    expect(screen.getByRole('button', { name: 'Скачать файл (.ics)' })).toBeTruthy();
+  });
+
+  it('без галочки ничего не открывается и срока-события в календаре не будет', async () => {
+    render(<App ready />);
+    await openDeadlineTab();
+    const form = await fillNewDeadline('Учебный без календаря', '2027-06-01');
+    fireEvent.click(within(form).getByRole('checkbox', { name: 'Добавить в календарь телефона' }));
+    const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
+    fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
+
+    await waitFor(async () => expect((await db.deadlines.toArray()).length).toBe(1));
+    expect(openWindow).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Сохранено. Сохраните событие в календаре/u)).toBeNull();
+  });
+
+  it('выбор галочки запоминается для следующего срока', async () => {
+    render(<App ready />);
+    await openDeadlineTab();
+    const first = await fillNewDeadline('Первый', '2027-07-01');
+    fireEvent.click(within(first).getByRole('checkbox', { name: 'Добавить в календарь телефона' }));
+    const footer = first.querySelector<HTMLElement>('.sheet-footer')!;
+    fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
+    await waitFor(async () => expect((await db.deadlines.toArray()).length).toBe(1));
+    // Ждём закрытия формы: иначе на экране две кнопки «Добавить» (форма и круглый +).
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Новый срок' })).toBeNull());
+
+    const second = await quickDeadline();
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'В календарь: нового нет' })).toBeTruthy(),
+      expect(
+        within(second)
+          .getByRole('checkbox', { name: 'Добавить в календарь телефона' })
+          .getAttribute('aria-checked'),
+      ).toBe('false'),
     );
-    expect(screen.getByText(/Все семейные сроки уже выгружались/u)).toBeTruthy();
+  });
+
+  it('проверочная ссылка календаря совпадает с тем, что открывает приложение', async () => {
+    render(<App ready />);
+    await openDeadlineTab();
+    const form = await fillNewDeadline('Сверка ссылки', '2027-05-01');
+    const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
+    fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
+    await waitFor(async () => expect((await db.deadlines.toArray()).length).toBe(1));
+    const opened = openWindow.mock.results[0]?.value as {
+      location: { replace: ReturnType<typeof vi.fn> };
+    };
+    const sample = (await db.deadlines.toArray())[0]!;
+    await waitFor(() =>
+      expect(opened.location.replace).toHaveBeenCalledWith(googleCalendarUrl(sample)),
+    );
   });
 });

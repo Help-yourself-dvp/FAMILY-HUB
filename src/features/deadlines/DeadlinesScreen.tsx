@@ -5,20 +5,20 @@
  * Минимум осознанно: название, тип, дата, ступени напоминаний. Повторения,
  * история замен и приватность — следующие куски ЭТАПА 6.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../../data/db';
+import { db, kvGet, kvSet, KV_KEYS } from '../../data/db';
 import { deadlinesRepo } from '../../data/repositories';
 import { daysUntil, formatRu, humanizeDelta, isDateOnly, parseRuDate } from '../../domain/dateOnly';
 import type { Deadline, DeadlineKind } from '../../domain/types';
 import { Banner, Field, Icon, Sheet, Skeleton } from '../../design/ui';
 import {
-  calendarUpdateSummary,
-  downloadCalendarUpdate,
+  CALENDAR_OPEN_TARGET,
+  calendarExportSummary,
+  downloadIcs,
   downloadSingleDeadlineIcs,
-  pendingForCalendar,
-  readCalendarExportMarks,
-  type CalendarExportMarks,
+  googleCalendarUrl,
+  type IcsDownloadResult,
 } from '../../notifications/ics';
 import {
   deadlineTone,
@@ -66,7 +66,8 @@ export default function DeadlinesScreen({
   const [calendarNotice, setCalendarNotice] = useState<{ tone: 'ok' | 'err'; text: string } | null>(
     null,
   );
-  const [marks, setMarks] = useState<CalendarExportMarks | null>(null);
+  // После сохранения с галочкой: если окно календаря не открылось, предложим файл.
+  const [calendarPrompt, setCalendarPrompt] = useState<Deadline | null>(null);
 
   const live = useMemo(() => {
     if (!rows) return null;
@@ -75,22 +76,18 @@ export default function DeadlinesScreen({
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   }, [rows]);
 
-  const refreshMarks = useCallback(() => {
-    void readCalendarExportMarks().then(setMarks);
-  }, []);
-  useEffect(() => refreshMarks(), [refreshMarks]);
+  const handleSaved = (d: Deadline, addToCalendar: boolean) => {
+    setCalendarNotice(null);
+    setCalendarPrompt(addToCalendar ? d : null);
+  };
 
-  // Файл «только новое»: телефон показывает все события файла и добавляет их разом,
-  // поэтому повторная выгрузка всей семьи плодила дубли (приёмка 03.10).
-  const pending = useMemo(() => (live ? pendingForCalendar(live, marks) : []), [live, marks]);
-
-  const addOneToCalendar = (d: Deadline) => {
+  const downloadOneForCalendar = (d: Deadline) => {
     void downloadSingleDeadlineIcs(d)
-      .then(() => {
-        refreshMarks();
+      .then((date) => {
+        setCalendarPrompt(null);
         setCalendarNotice({
           tone: 'ok',
-          text: `Скачан файл с одним событием: «${d.title}» (${formatRu(d.dueDate)}), 09:00. Остальные сроки в него не попали. Импортируйте файл в календарь телефона.`,
+          text: `Скачан файл с одним событием: «${d.title}» (${formatRu(date)}), 09:00. Импортируйте его в календарь телефона.`,
         });
       })
       .catch(() =>
@@ -149,7 +146,7 @@ export default function DeadlinesScreen({
           <h2 className="section-title">Просрочено · {overdue.length}</h2>
           <div className="stack">
             {overdue.map((d) => (
-              <DeadlineRow key={d.id} d={d} onEdit={setEditing} onCalendar={addOneToCalendar} />
+              <DeadlineRow key={d.id} d={d} onEdit={setEditing} />
             ))}
           </div>
         </section>
@@ -160,7 +157,7 @@ export default function DeadlinesScreen({
           <h2 className="section-title">Ближайшие · {soon.length}</h2>
           <div className="stack">
             {soon.map((d) => (
-              <DeadlineRow key={d.id} d={d} onEdit={setEditing} onCalendar={addOneToCalendar} />
+              <DeadlineRow key={d.id} d={d} onEdit={setEditing} />
             ))}
           </div>
         </section>
@@ -171,7 +168,7 @@ export default function DeadlinesScreen({
           <h2 className="section-title">Впереди · {later.length}</h2>
           <div className="stack">
             {later.map((d) => (
-              <DeadlineRow key={d.id} d={d} onEdit={setEditing} onCalendar={addOneToCalendar} />
+              <DeadlineRow key={d.id} d={d} onEdit={setEditing} />
             ))}
           </div>
         </section>
@@ -189,13 +186,12 @@ export default function DeadlinesScreen({
         type="button"
         className="btn btn--block"
         style={{ marginTop: 'var(--sp-2)' }}
-        disabled={calendarBusy || pending.length === 0}
+        disabled={calendarBusy || live.length === 0}
         onClick={() => {
           setCalendarBusy(true);
-          void downloadCalendarUpdate(live)
-            .then((result) => {
-              refreshMarks();
-              setCalendarNotice({ tone: 'ok', text: calendarUpdateSummary(result) });
+          void downloadIcs(live)
+            .then((result: IcsDownloadResult) => {
+              setCalendarNotice({ tone: 'ok', text: calendarExportSummary(result) });
             })
             .catch(() => {
               setCalendarNotice({
@@ -207,39 +203,49 @@ export default function DeadlinesScreen({
         }}
       >
         <Icon name="calendar" size={20} />{' '}
-        {calendarBusy
-          ? 'Готовим файл…'
-          : pending.length > 0
-            ? `В календарь: только новое (${pending.length})`
-            : 'В календарь: нового нет'}
+        {calendarBusy ? 'Готовим файл…' : 'Выгрузить все сроки файлом (.ics)'}
       </button>
       <p className="tiny muted" style={{ margin: 'var(--sp-1) 0 0' }}>
-        {live.length > 0 && pending.length === 0
-          ? 'Все семейные сроки уже выгружались: файл не повторяет их, чтобы не было дублей. Полная выгрузка и сброс отметок — в Настройках → Уведомления. Отдельный срок можно отправить кнопкой с календарём в его строке.'
-          : 'В файл попадают только сроки, которых не было в прежних выгрузках; скачивание само события не добавляет — подтвердите импорт в телефоне.'}
+        Обычный способ — галочка «Добавить в календарь телефона» в форме срока: она открывает окно
+        создания события с названием, датой и временем, а сохранение вы подтверждаете сами. Файл
+        нужен редко: в нём сразу все сроки, и телефон добавит их все.
       </p>
+      {calendarPrompt && (
+        <Banner tone="warn">
+          <div className="grow">
+            <div className="strong">Сохранено. Сохраните событие в календаре</div>
+            <div className="small">
+              Открылось окно создания записи «{calendarPrompt.title}» на{' '}
+              {formatRu(calendarPrompt.dueDate)}, 09:00. Нажмите в нём «Сохранить». Если окно не
+              открылось или нужен будильник за несколько дней — скачайте файл: в нём одно это
+              событие и наши напоминания.
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn--sm"
+            onClick={() => downloadOneForCalendar(calendarPrompt)}
+          >
+            Скачать файл (.ics)
+          </button>
+        </Banner>
+      )}
       {calendarNotice && (
         <Banner tone={calendarNotice.tone}>
           <div className="grow small">{calendarNotice.text}</div>
         </Banner>
       )}
 
-      {composeOpen && <DeadlineSheet onClose={() => setComposeOpen(false)} />}
-      {editing && <DeadlineSheet editing={editing} onClose={() => setEditing(null)} />}
+      {composeOpen && <DeadlineSheet onClose={() => setComposeOpen(false)} onSaved={handleSaved} />}
+      {editing && (
+        <DeadlineSheet editing={editing} onClose={() => setEditing(null)} onSaved={handleSaved} />
+      )}
       <div style={{ height: 64 }} aria-hidden="true" />
     </div>
   );
 }
 
-function DeadlineRow({
-  d,
-  onEdit,
-  onCalendar,
-}: {
-  d: Deadline;
-  onEdit: (d: Deadline) => void;
-  onCalendar: (d: Deadline) => void;
-}) {
+function DeadlineRow({ d, onEdit }: { d: Deadline; onEdit: (d: Deadline) => void }) {
   const left = daysUntil(d.dueDate);
   const toneKind = deadlineTone(d);
   const color = toneKind === 'ok' ? 'var(--text-2)' : TONE_COLOR[toneKind];
@@ -271,14 +277,6 @@ function DeadlineRow({
         <button
           type="button"
           className="icon-btn"
-          aria-label={`В календарь: «${d.title}»`}
-          onClick={() => onCalendar(d)}
-        >
-          <Icon name="calendar" size={20} />
-        </button>
-        <button
-          type="button"
-          className="icon-btn"
           aria-label={`Удалить «${d.title}»`}
           onClick={() => void deadlinesRepo.remove(d.id)}
         >
@@ -289,7 +287,16 @@ function DeadlineRow({
   );
 }
 
-function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: Deadline | null }) {
+function DeadlineSheet({
+  onClose,
+  editing,
+  onSaved,
+}: {
+  onClose: () => void;
+  editing?: Deadline | null;
+  /** Вызывается после сохранения: экран покажет подсказку про календарь. */
+  onSaved?: (d: Deadline, addToCalendar: boolean) => void;
+}) {
   const [title, setTitle] = useState(editing?.title ?? '');
   const [kind, setKind] = useState<DeadlineKind>(editing?.deadlineKind ?? 'document');
   const [date, setDate] = useState(editing?.dueDate ?? '');
@@ -303,6 +310,14 @@ function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: De
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Галочка «Добавить в календарь телефона» — решение владельца 03.10: открывается
+  // окно создания события, сохранение подтверждает человек. Выбор запоминаем.
+  const [addToCalendar, setAddToCalendar] = useState(true);
+  useEffect(() => {
+    void kvGet<boolean>(KV_KEYS.notifyCalendarAddOnSave).then((v) => {
+      if (typeof v === 'boolean') setAddToCalendar(v);
+    });
+  }, []);
 
   const submit = async () => {
     const raw = title.trim();
@@ -322,27 +337,33 @@ function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: De
     }
     setBusy(true);
     setError(null);
+    // Окно календаря открываем синхронно, в самом нажатии: после await браузер уже
+    // не считает это действием человека и может заблокировать новое окно.
+    const calendarWindow = addToCalendar ? window.open('', CALENDAR_OPEN_TARGET) : null;
     try {
-      if (editing) {
-        await deadlinesRepo.update(editing.id, {
-          title: raw,
-          deadlineKind: kind,
-          dueDate: due,
-          remindersDays: steps,
-          alertDays: alertD,
-          warnDays: warnD,
-        });
-      } else {
-        await deadlinesRepo.add({
-          title: raw,
-          deadlineKind: kind,
-          dueDate: due,
-          remindersDays: steps,
-          alertDays: alertD,
-          warnDays: warnD,
-        });
-      }
+      await kvSet(KV_KEYS.notifyCalendarAddOnSave, addToCalendar);
+      const patch = {
+        title: raw,
+        deadlineKind: kind,
+        dueDate: due,
+        remindersDays: steps,
+        alertDays: alertD,
+        warnDays: warnD,
+      };
+      const saved = editing
+        ? await deadlinesRepo.update(editing.id, patch)
+        : await deadlinesRepo.add(patch);
       onClose();
+      const deadline = saved ?? (editing ? { ...editing, ...patch } : null);
+      onSaved?.(deadline as Deadline, addToCalendar);
+      if (addToCalendar && deadline) {
+        const url = googleCalendarUrl(deadline);
+        // Если окно открыть не удалось, экран предложит файл .ics.
+        if (calendarWindow) calendarWindow.location.replace(url);
+        else window.open(url, CALENDAR_OPEN_TARGET);
+      } else {
+        calendarWindow?.close();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Неизвестная ошибка');
     } finally {
@@ -474,6 +495,23 @@ function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: De
                   {s.label}
                 </button>
               ))}
+          </div>
+        </div>
+        <div className="row" style={{ gap: 'var(--sp-3)', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="checkbox"
+            role="checkbox"
+            aria-checked={addToCalendar}
+            aria-label="Добавить в календарь телефона"
+            onClick={() => setAddToCalendar((v) => !v)}
+          />
+          <div className="grow">
+            <div>Добавить в календарь телефона</div>
+            <div className="tiny muted">
+              Откроется окно создания события с названием, датой и временем — сохраните его там.
+              Напоминания в окне обычные (из настроек календаря); наши ступени ведёт приложение.
+            </div>
           </div>
         </div>
         <div className="sheet-footer">

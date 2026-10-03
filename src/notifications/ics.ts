@@ -6,7 +6,7 @@
  */
 import type { Deadline } from '../domain/types';
 import { addDays, formatRu, isDateOnly, type DateOnly } from '../domain/dateOnly';
-import { db, kvGet, kvSet, KV_KEYS } from '../data/db';
+import { db, kvSet, KV_KEYS } from '../data/db';
 
 export const ICS_FORMAT_REVISION = 2;
 export const CALENDAR_TIMEZONE = 'Europe/Moscow';
@@ -143,10 +143,18 @@ export function buildSingleDeadlineIcs(deadline: Deadline, opts: IcsBuildOptions
 }
 
 /**
- * Ссылка «Открыть в Google Календаре» с заполненным событием. Google подставляет
- * пользователю форму создания: он видит одно событие и сам решает, сохранять ли.
- * Напоминания Google в такую ссылку не принимает — будильники берутся из настроек
- * календаря, поэтому .ics остаётся основным способом (он несёт наши VALARM).
+ * Ссылка на окно создания события с заполненными названием, датой и временем.
+ *
+ * Решение владельца 2026-10-03: при сохранении срока с галочкой «Добавить в
+ * календарь» открывается штатное окно создания записи, а сохранение человек
+ * подтверждает сам. Так работает Google Календарь: Chrome на Android отдаёт эту
+ * ссылку приложению Google Календаря (окно создания события), иначе открывает
+ * веб-форму с теми же полями. Системный календарь Honor из браузера открыть нельзя —
+ * у сайтов нет доступа к системному календарю; там остаётся файл .ics.
+ *
+ * Напоминания в такое окно подставить нельзя: оно покажет обычное напоминание
+ * из настроек календаря. Наши ступени (за 30/7/0 дней) ведёт само приложение,
+ * а файл .ics несёт их будильниками.
  */
 export function googleCalendarUrl(d: Deadline): string {
   const params = new URLSearchParams({
@@ -158,6 +166,9 @@ export function googleCalendarUrl(d: Deadline): string {
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
+
+/** Порядок открытия окна календаря после сохранения срока (см. DeadlinesScreen). */
+export const CALENDAR_OPEN_TARGET = '_blank';
 
 export interface IcsDownloadResult {
   eventCount: number;
@@ -171,70 +182,6 @@ export function calendarExportSummary(result: IcsDownloadResult): string {
       ? formatRu(result.firstDate)
       : `${formatRu(result.firstDate)} — ${formatRu(result.lastDate)}`;
   return `В файле ${result.eventCount} событий. Даты сроков: ${dates}, 09:00 (Москва). Подтвердите импорт и проверьте эти даты в календаре. Скачивание само по себе не добавляет события.`;
-}
-
-/**
- * Отметки «этот срок уже выгружали в календарь» (по ревизии и дате).
- *
- * Зачем: телефон показывает при импорте ВСЕ события файла и добавляет их разом,
- * поэтому повторная выгрузка всей семьи плодила дубли. Теперь по умолчанию
- * выгружается только то, чего в календаре ещё нет.
- */
-export interface CalendarExportMarks {
-  [deadlineId: string]: { rev: number; dueDate: DateOnly };
-}
-
-export async function readCalendarExportMarks(): Promise<CalendarExportMarks> {
-  return (await kvGet<CalendarExportMarks>(KV_KEYS.notifyCalendarExported)) ?? {};
-}
-
-export async function resetCalendarExportMarks(): Promise<void> {
-  await db.transaction('rw', db.kv, async () => {
-    await db.kv.delete(KV_KEYS.notifyCalendarExported);
-  });
-}
-
-export function pendingForCalendar(
-  deadlines: Deadline[],
-  marks: CalendarExportMarks | null | undefined,
-): Deadline[] {
-  return exportableDeadlines(deadlines).filter((d) => {
-    const mark = marks?.[d.id];
-    return !mark || mark.rev !== d.rev || mark.dueDate !== d.dueDate;
-  });
-}
-
-export interface CalendarUpdateResult {
-  eventCount: number;
-  /** Сколько событий в файле впервые (без прежней отметки). */
-  freshCount: number;
-  /** Сколько уже выгружались, но изменились с тех пор. */
-  changedCount: number;
-  /** Сколько подходящих сроков всего (до отбора по отметкам). */
-  totalCount: number;
-  /** Даты есть только тогда, когда в файл что-то попало. */
-  firstDate: DateOnly | null;
-  lastDate: DateOnly | null;
-}
-
-export function calendarUpdateSummary(r: CalendarUpdateResult): string {
-  if (r.eventCount === 0)
-    return `Новых событий нет: все ${r.totalCount} семейных сроков уже выгружались. Если нужно отправить их заново (например, после сброса календаря), используйте полную выгрузку в настройках.`;
-  const parts = [`В файле ${r.eventCount} событий, 09:00 (Москва).`];
-  if (r.changedCount > 0)
-    parts.push(
-      `Из них изменённых: ${r.changedCount} — если прежняя запись уже есть в календаре, удалите её, чтобы не осталось двух.`,
-    );
-  parts.push('Подтвердите импорт и проверьте даты. Скачивание само по себе не добавляет события.');
-  return parts.join(' ');
-}
-
-async function writeExportMarks(deadlines: Deadline[]): Promise<void> {
-  const marks = await readCalendarExportMarks();
-  for (const d of deadlines) marks[d.id] = { rev: d.rev, dueDate: d.dueDate };
-  await db.transaction('rw', db.kv, async () => {
-    await kvSet(KV_KEYS.notifyCalendarExported, marks);
-  });
 }
 
 function downloadCalendarFile(content: string, filename: string): void {
@@ -259,73 +206,31 @@ export async function downloadSingleDeadlineIcs(d: Deadline): Promise<DateOnly> 
   await db.transaction('rw', db.kv, async () => {
     await kvSet(KV_KEYS.notifyIcsDownloaded, true);
   });
-  await writeExportMarks([d]);
   return d.dueDate;
 }
 
-/**
- * Выгрузка в календарь телефона.
- * @param all true — все семейные сроки (полная выгрузка), false — только новые и изменённые.
- */
-export async function downloadCalendarUpdate(
-  deadlines: Deadline[],
-  all = false,
-): Promise<CalendarUpdateResult> {
-  const exportable = exportableDeadlines(deadlines);
-  const marks = await readCalendarExportMarks();
-  const fresh = exportable.filter((d) => !marks[d.id]);
-  const pending = all ? exportable : pendingForCalendar(exportable, marks);
-  if (pending.length === 0) {
-    const totalCount = exportable.length;
-    if (totalCount === 0) throw new Error('Нет семейных сроков с корректной датой для календаря.');
-    return {
-      eventCount: 0,
-      freshCount: 0,
-      changedCount: 0,
-      totalCount,
-      firstDate: null,
-      lastDate: null,
-    };
-  }
-  const dates = pending.map((d) => d.dueDate).sort();
-  const firstDate = dates[0] ?? null;
-  const lastDate = dates.at(-1) ?? null;
-  const freshSet = new Set(fresh.map((d) => d.id));
-  const freshCount = pending.filter((d) => freshSet.has(d.id)).length;
-  downloadCalendarFile(
-    buildDeadlinesIcs(pending),
-    all ? 'family-hub-deadlines.ics' : 'family-hub-deadlines-new.ics',
-  );
-  await db.transaction('rw', db.kv, async () => {
-    await kvSet(KV_KEYS.notifyIcsDownloaded, true);
-    // В диагностику только счётчики, версия формата и время экспорта — НЕ даты сроков.
-    await kvSet(KV_KEYS.notifyIcsExport, {
-      eventCount: pending.length,
-      formatRevision: ICS_FORMAT_REVISION,
-      exportedAt: new Date().toISOString(),
-      scope: all ? 'all' : 'pending',
-    });
-  });
-  await writeExportMarks(pending);
-  return {
-    eventCount: pending.length,
-    freshCount,
-    changedCount: pending.length - freshCount,
-    totalCount: exportable.length,
-    firstDate,
-    lastDate,
-  };
-}
-
-/** Общий путь экспорта: полная выгрузка, пустой файл за успех не выдаём. */
+/** Общий путь экспорта: полная выгрузка файлом, пустой файл за успех не выдаём. */
 export async function downloadIcs(
   deadlines: Deadline[],
-  _filename = 'family-hub-deadlines.ics',
+  filename = 'family-hub-deadlines.ics',
 ): Promise<IcsDownloadResult> {
-  const { eventCount, firstDate, lastDate } = await downloadCalendarUpdate(deadlines, true);
-  if (eventCount === 0 || !firstDate || !lastDate)
+  const live = exportableDeadlines(deadlines);
+  const dates = live.map((d) => d.dueDate).sort();
+  const firstDate = dates[0];
+  const lastDate = dates.at(-1);
+  if (!firstDate || !lastDate)
     throw new Error('Нет семейных сроков с корректной датой для календаря.');
-  return { eventCount, firstDate, lastDate };
+  downloadCalendarFile(buildDeadlinesIcs(live), filename);
+  await db.transaction('rw', db.kv, async () => {
+    await kvSet(KV_KEYS.notifyIcsDownloaded, true);
+    // В диагностику только счётчик, версия формата и время экспорта — НЕ даты сроков.
+    await kvSet(KV_KEYS.notifyIcsExport, {
+      eventCount: live.length,
+      formatRevision: ICS_FORMAT_REVISION,
+      exportedAt: new Date().toISOString(),
+    });
+  });
+  return { eventCount: live.length, firstDate, lastDate };
 }
 
 /** Только вымышленное событие, не записывается в Сроки и не включает резерв семьи. */

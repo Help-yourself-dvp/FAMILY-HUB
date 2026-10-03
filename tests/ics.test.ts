@@ -10,15 +10,11 @@ import {
   buildCalendarAlarmTest,
   buildSingleDeadlineIcs,
   calendarTestDeadline,
-  calendarUpdateSummary,
-  downloadCalendarUpdate,
+  downloadIcs,
   downloadSingleDeadlineIcs,
   escapeIcsText,
   foldIcsLine,
   googleCalendarUrl,
-  pendingForCalendar,
-  readCalendarExportMarks,
-  resetCalendarExportMarks,
 } from '../src/notifications/ics';
 import { db } from '../src/data/db';
 import type { Deadline } from '../src/domain/types';
@@ -135,15 +131,14 @@ it('быстрая проверка native alarm: одна UTC-встреча, 1
     expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
 });
 
-describe('одиночное событие и выгрузка «только новое» (приёмка 03.10)', () => {
+describe('календарь: одно событие и окно создания записи (решение владельца 03.10)', () => {
   const createObjectURL = vi.fn(() => 'blob:test-calendar');
   let restoreUrl = () => undefined;
 
   beforeEach(async () => {
     await db.kv.clear();
     createObjectURL.mockClear();
-    // Подменяем только методы Blob-URL, сам URL остаётся рабочим: тест разбирает
-    // ссылку Google Календаря через new URL.
+    // Подменяем только методы Blob-URL: сам URL остаётся рабочим для new URL.
     const holder = globalThis.URL as unknown as Record<string, unknown>;
     const prev = { create: holder.createObjectURL, revoke: holder.revokeObjectURL };
     holder.createObjectURL = createObjectURL;
@@ -176,7 +171,7 @@ describe('одиночное событие и выгрузка «только �
     expect(full.match(/BEGIN:VEVENT/gu)?.length).toBe(2);
   });
 
-  it('ссылка Google Календаря несёт одно событие 09:00–09:15 по Москве', () => {
+  it('ссылка окна создания несёт название, дату и время 09:00–09:15 по Москве', () => {
     const url = new URL(googleCalendarUrl(dl({ title: 'Страховка, ТО' })));
     expect(url.origin + url.pathname).toBe('https://calendar.google.com/calendar/render');
     expect(url.searchParams.get('action')).toBe('TEMPLATE');
@@ -185,52 +180,24 @@ describe('одиночное событие и выгрузка «только �
     expect(url.searchParams.get('ctz')).toBe('Europe/Moscow');
   });
 
-  it('выгружаются только новые и изменённые сроки', () => {
-    const a = dl({ id: 'a', rev: 1 });
-    const b = dl({ id: 'b', rev: 1 });
-    expect(pendingForCalendar([a, b], {}).map((d) => d.id)).toEqual(['a', 'b']);
-    const marks = { a: { rev: 1, dueDate: a.dueDate }, b: { rev: 1, dueDate: b.dueDate } };
-    expect(pendingForCalendar([a, b], marks)).toEqual([]);
-    // Изменили ревизию или дату — срок снова попадает в файл.
-    expect(pendingForCalendar([{ ...a, rev: 2 }, b], marks).map((d) => d.id)).toEqual(['a']);
-    expect(
-      pendingForCalendar([{ ...a, dueDate: '2026-12-01' }, b], marks).map((d) => d.id),
-    ).toEqual(['a']);
-    // Удалённые и приватные не выгружаются никогда.
-    expect(pendingForCalendar([{ ...a, deletedAt: '2026-10-01T00:00:00.000Z' }], marks)).toEqual(
-      [],
-    );
+  it('выгрузка файлом берёт все семейные сроки, удалённые и приватные — нет', async () => {
+    const result = await downloadIcs([
+      dl({ id: 'a' }),
+      dl({ id: 'b', dueDate: '2026-12-01' }),
+      dl({ id: 'gone', deletedAt: '2026-10-01T00:00:00.000Z' }),
+      dl({ id: 'private', visibility: 'private' }),
+    ]);
+    expect(result).toMatchObject({
+      eventCount: 2,
+      firstDate: '2026-11-15',
+      lastDate: '2026-12-01',
+    });
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
   });
 
-  it('скачивание «только новое» ставит отметки, второй раз файл пуст, сброс возвращает', async () => {
-    const first = await downloadCalendarUpdate([dl({ id: 'a' })]);
-    expect(first).toMatchObject({ eventCount: 1, freshCount: 1, changedCount: 0, totalCount: 1 });
-    expect(await readCalendarExportMarks()).toHaveProperty('a');
-
-    const again = await downloadCalendarUpdate([dl({ id: 'a' })]);
-    expect(again.eventCount).toBe(0);
-    expect(calendarUpdateSummary(again)).toMatch(/Новых событий нет/u);
-
-    await resetCalendarExportMarks();
-    expect(await readCalendarExportMarks()).toEqual({});
-    expect((await downloadCalendarUpdate([dl({ id: 'a' })])).eventCount).toBe(1);
-  });
-
-  it('изменённый срок помечается как «изменённый», полная выгрузка берёт все', async () => {
-    await downloadCalendarUpdate([dl({ id: 'a', rev: 1 })]);
-    const changed = await downloadCalendarUpdate([dl({ id: 'a', rev: 2 })]);
-    expect(changed).toMatchObject({ eventCount: 1, freshCount: 0, changedCount: 1 });
-    expect(calendarUpdateSummary(changed)).toMatch(/удалите её/u);
-
-    await downloadCalendarUpdate([dl({ id: 'a', rev: 2 })]);
-    const full = await downloadCalendarUpdate([dl({ id: 'a', rev: 2 })], true);
-    expect(full).toMatchObject({ eventCount: 1, freshCount: 0, changedCount: 1 });
-  });
-
-  it('одиночная выгрузка отмечает только свой срок', async () => {
-    await downloadSingleDeadlineIcs(dl({ id: 'a' }));
-    const marks = await readCalendarExportMarks();
-    expect(Object.keys(marks)).toEqual(['a']);
-    expect((await downloadCalendarUpdate([dl({ id: 'a' }), dl({ id: 'b' })])).eventCount).toBe(1);
+  it('одиночный файл скачивается отдельно и не трогает остальные сроки', async () => {
+    const date = await downloadSingleDeadlineIcs(dl({ id: 'a' }));
+    expect(date).toBe('2026-11-15');
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
   });
 });
