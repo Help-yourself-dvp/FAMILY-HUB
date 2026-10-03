@@ -249,9 +249,42 @@ export function calendarExportSummary(result: IcsDownloadResult): string {
   return `В файле ${result.eventCount} событий. Даты сроков: ${dates}, 09:00 (Москва). Подтвердите импорт и проверьте эти даты в календаре. Скачивание само по себе не добавляет события.`;
 }
 
-function downloadCalendarFile(content: string, filename: string): void {
+function createIcsBlobUrl(content: string): string {
+  // Content-Type обязателен: iOS показывает системное окно «Добавить в календарь»
+  // только когда получает именно text/calendar (проверено сообществом: z9bl/gpk-calculator
+  // PR #114/#117 — blob: + переход открывает окно события в Safari; a.download и
+  // navigator.share дают лишь предпросмотр без кнопки «Добавить»).
   const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
+  return URL.createObjectURL(blob);
+}
+
+/**
+ * Один срок сразу в системное окно календаря (iPhone/iPad).
+ *
+ * Синхронно, из действия человека: Safari открывает окно только по прямому переходу,
+ * поэтому никаких await до этого места. Возвращает false, если браузер заблокировал
+ * новую вкладку — тогда экран предложит сохранить файл.
+ */
+export function openSingleDeadlineIcs(d: Deadline): boolean {
+  if (typeof window === 'undefined') return false;
+  const url = createIcsBlobUrl(buildSingleDeadlineIcs(d));
+  const revoke = URL.revokeObjectURL.bind(URL);
+  let opened: boolean;
+  try {
+    opened = window.open(url, CALENDAR_OPEN_TARGET) !== null;
+  } catch {
+    opened = false;
+  }
+  // Если вкладку заблокировали, ссылку не держим; иначе даём системе время её забрать.
+  setTimeout(() => revoke(url), opened ? 15_000 : 0);
+  void db.transaction('rw', db.kv, async () => {
+    await kvSet(KV_KEYS.notifyIcsDownloaded, true);
+  });
+  return opened;
+}
+
+function downloadCalendarFile(content: string, filename: string): void {
+  const url = createIcsBlobUrl(content);
   const revoke = URL.revokeObjectURL.bind(URL);
   const anchor = document.createElement('a');
   anchor.href = url;

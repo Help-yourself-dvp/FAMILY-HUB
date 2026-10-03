@@ -101,6 +101,22 @@ describe('Сроки: оба пути добавления', () => {
 
 describe('Сроки и календарь: галочка при сохранении (решение владельца 03.10)', () => {
   const openWindow = vi.fn();
+  const createObjectURL = vi.fn((_blob: Blob) => 'blob:test-calendar');
+
+  beforeEach(() => {
+    createObjectURL.mockClear();
+    const holder = URL as unknown as {
+      createObjectURL?: (b: Blob) => string;
+      revokeObjectURL?: (u: string) => void;
+    };
+    const prev = { create: holder.createObjectURL, revoke: holder.revokeObjectURL };
+    holder.createObjectURL = createObjectURL;
+    holder.revokeObjectURL = vi.fn();
+    return () => {
+      holder.createObjectURL = prev.create;
+      holder.revokeObjectURL = prev.revoke;
+    };
+  });
 
   beforeEach(() => {
     openWindow.mockReset().mockReturnValue({
@@ -130,26 +146,21 @@ describe('Сроки и календарь: галочка при сохране
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
-    await waitFor(() => expect(openWindow).toHaveBeenCalledTimes(1));
-    // На Android сначала пробуем приложение календаря (Chrome откроет веб-форму,
-    // если приложение не отзовётся — путь указан в browser_fallback_url).
-    const openedUrl = String(openWindow.mock.calls[0]?.[0]);
-    expect(openedUrl.startsWith('intent://calendar.google.com/calendar/render?')).toBe(true);
-    const data = openedUrl.slice('intent://'.length).split('#Intent;')[0] ?? '';
-    const created = new URL(`https://${data}`);
-    expect(created.searchParams.get('text')).toBe('[Срок] Учебный срок календаря');
-    expect(created.searchParams.get('dates')).toBe('20270501T090000/20270501T091500');
-    // Срок сохранён (на медленном runner'е запись завершается позже открытия окна,
-    // которое происходит синхронно) — ждём и запись, и подсказку.
+    // Ничего не открывается и не скачивается само: сначала вопрос, действие — по нажатию.
     await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
-    expect((await db.deadlines.toArray()).map((row) => row.title)).toEqual([
-      'Учебный срок календаря',
-    ]);
+    expect(openWindow).not.toHaveBeenCalled();
     const prompt = await screen.findByTestId('calendar-prompt');
-    expect(within(prompt).getByText(/Подтвердите событие в календаре/u)).toBeTruthy();
-    expect(
-      within(prompt).getByRole('button', { name: 'Файлом в календарь телефона' }),
-    ).toBeTruthy();
+    expect(within(prompt).getByText(/Добавить событие в календарь телефона/u)).toBeTruthy();
+    expect(within(prompt).getByText('[Срок] Учебный срок календаря')).toBeTruthy();
+    expect(within(prompt).getByText(/1 мая 2027|01\.05\.2027/u)).toBeTruthy();
+    expect(within(prompt).getByRole('button', { name: 'Не нужно' })).toBeTruthy();
+
+    // Кнопка на Android скачивает файл события (открыть файл за человека сайт не может).
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Скачать файл события' }));
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('calendar-prompt')).toBeNull());
+    expect(screen.getByText(/Нажмите «Открыть» в плашке загрузки/u)).toBeTruthy();
+    expect(openWindow).not.toHaveBeenCalled();
   });
 
   it('без галочки ничего не открывается и срока-события в календаре не будет', async () => {
@@ -164,7 +175,7 @@ describe('Сроки и календарь: галочка при сохране
       timeout: 5000,
     });
     expect(openWindow).not.toHaveBeenCalled();
-    expect(screen.queryByText(/Сохранено. Сохраните событие в календаре/u)).toBeNull();
+    expect(screen.queryByTestId('calendar-prompt')).toBeNull();
   });
 
   it('выбор галочки запоминается для следующего срока', async () => {
@@ -201,22 +212,23 @@ describe('Сроки и календарь: галочка при сохране
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
-    // Никакой новой вкладки: календарь Apple ссылкой не открывается, а веб-форма
-    // Google на iPhone обычно ни к чему — человека ведёт окно экрана.
+    // Само ничего не открывается: сначала вопрос, затем — системное окно календаря.
     await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
     expect(openWindow).not.toHaveBeenCalled();
 
     const prompt = await screen.findByTestId('calendar-prompt');
-    expect(
-      within(prompt).getByText(/На iPhone сайт не может открыть календарь Apple/u),
-    ).toBeTruthy();
-    expect(
-      within(prompt).getByRole('button', { name: 'Сохранить в Календарь iPhone' }),
-    ).toBeTruthy();
-    expect(within(prompt).getByRole('link', { name: /Открыть Google Календарь/u })).toBeTruthy();
+    expect(within(prompt).getByRole('button', { name: 'Открыть окно события' })).toBeTruthy();
+    expect(within(prompt).getByRole('button', { name: 'Скачать файлом' })).toBeTruthy();
+    // Google-ссылки на iPhone нет: приложением Google Календаря там не пользуются.
+    expect(within(prompt).queryByRole('link', { name: /Google/u })).toBeNull();
+
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Открыть окно события' }));
+    await waitFor(() => expect(openWindow).toHaveBeenCalledTimes(1));
+    expect(String(openWindow.mock.calls[0]?.[0]).startsWith('blob:')).toBe(true);
+    await waitFor(() => expect(screen.getByText(/Открылось системное окно события/u)).toBeTruthy());
   });
 
-  it('на компьютере открывается обычная веб-форма, без intent', async () => {
+  it('на компьютере само ничего не открывается, а Google-ссылка ведёт на веб-форму', async () => {
     Object.defineProperty(window.navigator, 'userAgent', {
       configurable: true,
       get: () => DESKTOP_UA,
@@ -226,13 +238,19 @@ describe('Сроки и календарь: галочка при сохране
     const form = await fillNewDeadline('Срок с компьютера', '2027-05-01');
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
-    await waitFor(() => expect(openWindow).toHaveBeenCalledTimes(1));
-    const url = new URL(String(openWindow.mock.calls[0]?.[0]));
+
+    await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
+    expect(openWindow).not.toHaveBeenCalled();
+    const prompt = await screen.findByTestId('calendar-prompt');
+    const url = new URL(
+      within(prompt).getByRole('link', { name: 'Google Календарь' }).getAttribute('href') ?? '',
+    );
     expect(url.origin + url.pathname).toBe('https://calendar.google.com/calendar/render');
     expect(url.searchParams.get('text')).toBe('[Срок] Срок с компьютера');
+    expect(within(prompt).getByRole('button', { name: 'Скачать файл события' })).toBeTruthy();
   });
 
-  it('после сохранения окно показывает событие и оба способа добавления', async () => {
+  it('после сохранения окно-вопрос показывает событие и способы добавления', async () => {
     render(<App ready />);
     await openDeadlineTab();
     const form = await fillNewDeadline('Срок с выбором', '2027-08-01');
@@ -240,19 +258,30 @@ describe('Сроки и календарь: галочка при сохране
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
     const prompt = await screen.findByTestId('calendar-prompt');
+    expect(within(prompt).getByText(/Добавить событие в календарь телефона/u)).toBeTruthy();
     expect(within(prompt).getByText('[Срок] Срок с выбором')).toBeTruthy();
     expect(within(prompt).getByText(/01\.08\.2027, 09:00–09:15/u)).toBeTruthy();
-    expect(
-      within(prompt).getByRole('button', { name: 'Файлом в календарь телефона' }),
-    ).toBeTruthy();
-    expect(within(prompt).getByRole('link', { name: 'Открыть Google Календарь' })).toBeTruthy();
-    // Честное предупреждение про аккаунт браузера на месте.
-    expect(
-      within(prompt).getByText(/если это другой аккаунт, на телефоне записи не будет/u),
-    ).toBeTruthy();
+    expect(within(prompt).getByRole('button', { name: 'Скачать файл события' })).toBeTruthy();
+    expect(within(prompt).getByRole('link', { name: 'Google Календарь' })).toBeTruthy();
+    // Честные подписи: что произойдёт после нажатия и чем чревата веб-версия.
+    expect(within(prompt).getByText(/Нажмите «Открыть» в плашке загрузки/u)).toBeTruthy();
+    expect(within(prompt).getByRole('button', { name: 'Не нужно' })).toBeTruthy();
   });
 
-  it('проверочная ссылка календаря совпадает с тем, что открывает приложение', async () => {
+  it('«Не нужно» закрывает окно-вопрос и ничего не открывает', async () => {
+    render(<App ready />);
+    await openDeadlineTab();
+    const form = await fillNewDeadline('Срок без календаря', '2027-09-01');
+    const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
+    fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
+    const prompt = await screen.findByTestId('calendar-prompt');
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Не нужно' }));
+    await waitFor(() => expect(screen.queryByTestId('calendar-prompt')).toBeNull());
+    expect(openWindow).not.toHaveBeenCalled();
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('файл события собирается из сохранённого срока, а Google-ссылка — из тех же данных', async () => {
     render(<App ready />);
     await openDeadlineTab();
     const form = await fillNewDeadline('Сверка ссылки', '2027-05-01');
@@ -262,11 +291,19 @@ describe('Сроки и календарь: галочка при сохране
       timeout: 5000,
     });
     const sample = (await db.deadlines.toArray())[0]!;
-    await waitFor(() =>
-      expect(openWindow).toHaveBeenCalledWith(
-        calendarAddTarget({ title: sample.title, dueDate: sample.dueDate }, ANDROID_UA).url,
-        '_blank',
-      ),
+    const expected = calendarAddTarget(
+      { title: sample.title, dueDate: sample.dueDate },
+      ANDROID_UA,
     );
+    const prompt = await screen.findByTestId('calendar-prompt');
+    const link = within(prompt).getByRole('link', { name: 'Google Календарь' });
+    expect(link.getAttribute('href')).toBe(expected.url);
+
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Скачать файл события' }));
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
+    const text = await blob.text();
+    expect(text).toContain('SUMMARY:[Срок] Сверка ссылки');
+    expect(text).toContain('DTSTART;TZID=Europe/Moscow:20270501T090000');
   });
 });

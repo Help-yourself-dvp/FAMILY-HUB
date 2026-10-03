@@ -17,6 +17,7 @@ import {
   foldIcsLine,
   googleCalendarUrl,
   isIosClient,
+  openSingleDeadlineIcs,
 } from '../src/notifications/ics';
 import { db } from '../src/data/db';
 import type { Deadline } from '../src/domain/types';
@@ -201,6 +202,24 @@ describe('календарь: одно событие и окно создани
     const date = await downloadSingleDeadlineIcs(dl({ id: 'a' }));
     expect(date).toBe('2026-11-15');
     expect(createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it('на iPhone файл открывается сразу в новой вкладке — системное окно Календаря', () => {
+    const open = vi.fn((_url?: string | URL) => ({}) as Window);
+    vi.stubGlobal('open', open);
+    const opened = openSingleDeadlineIcs(dl({ id: 'a' }));
+    expect(opened).toBe(true);
+    // Переход делается синхронно, из действия человека: иначе Safari не покажет окно.
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(String(open.mock.calls[0]?.[0])).toBe('blob:test-calendar');
+    vi.unstubAllGlobals();
+  });
+
+  it('если браузер заблокировал вкладку, честно возвращаем false и ссылку не держим', () => {
+    const open = vi.fn((_url?: string | URL) => null);
+    vi.stubGlobal('open', open);
+    expect(openSingleDeadlineIcs(dl({ id: 'a' }))).toBe(false);
+    vi.unstubAllGlobals();
   });
 });
 
