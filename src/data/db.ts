@@ -132,6 +132,7 @@ export const KV_KEYS = {
   notifyIcsDownloaded: 'notify.channels.ics',
   /** Только безопасные метаданные экспорта: количество, формат, время. */
   notifyIcsExport: 'notify.calendar.export',
+  notifyCalendarExported: 'notify.calendar.exported',
 } as const;
 
 export async function kvGet<T>(key: string): Promise<T | undefined> {

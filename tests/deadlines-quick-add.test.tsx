@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/app/App';
 import { db, kvSet, KV_KEYS } from '../src/data/db';
 import { loadSession } from '../src/data/session';
+import { deadlinesRepo } from '../src/data/repositories';
+import { readCalendarExportMarks } from '../src/notifications/ics';
 
 beforeEach(async () => {
   await Promise.all([
@@ -83,5 +85,45 @@ describe('Сроки: оба пути добавления', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Добавить срок' }));
     const form = await screen.findByRole('dialog', { name: 'Новый срок' });
     expect(within(form).getByLabelText('Что за срок')).toBeTruthy();
+  });
+});
+
+describe('Сроки и календарь: без повторной выгрузки всей семьи (приёмка 03.10)', () => {
+  const createObjectURL = vi.fn(() => 'blob:test-calendar');
+
+  beforeEach(() => {
+    const holder = globalThis.URL as unknown as Record<string, unknown>;
+    holder.createObjectURL = createObjectURL;
+    holder.revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+  });
+
+  it('новый срок попадает в файл «только новое», уже выгруженный — нет', async () => {
+    render(<App ready />);
+    await openDeadlineTab();
+    await deadlinesRepo.add({
+      title: 'Учебный срок календаря',
+      deadlineKind: 'document',
+      dueDate: '2027-05-01',
+      remindersDays: [30, 0],
+      alertDays: 30,
+      warnDays: 7,
+    });
+    const row = await screen.findByRole('button', {
+      name: 'В календарь: «Учебный срок календаря»',
+    });
+
+    // Одиночное событие: файл ровно про этот срок, отметка поставлена.
+    fireEvent.click(row);
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    await screen.findByText(/Скачан файл с одним событием/u);
+    const marks = await readCalendarExportMarks();
+    expect(Object.keys(marks)).toHaveLength(1);
+
+    // Раз отметка есть, общая выгрузка «только новое» больше не предлагает событий.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'В календарь: нового нет' })).toBeTruthy(),
+    );
+    expect(screen.getByText(/Все семейные сроки уже выгружались/u)).toBeTruthy();
   });
 });

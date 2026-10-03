@@ -210,7 +210,10 @@ export class GitHubClient {
     if (!token) throw new GitHubError(0, 'нет токена доступа', 'no-token');
 
     const url = `${this.contentsUrl(path)}?ref=${encodeURIComponent(this.cfg.branch)}`;
-    const headers: Record<string, string> = {};
+    // GitHub рекомендует явный `Cache-Control: no-cache` для Contents API: без него
+    // ответ может прийти из кэша CDN со старым sha, а PUT с устаревшим sha даёт 409
+    // (регрессия приёмки 03.10 у включения push).
+    const headers: Record<string, string> = { 'Cache-Control': 'no-cache' };
     if (etag) headers['If-None-Match'] = etag;
 
     const res = await this.request(url, { method: 'GET', headers }, token);

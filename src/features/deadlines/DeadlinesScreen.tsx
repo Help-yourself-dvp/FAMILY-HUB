@@ -5,14 +5,21 @@
  * Минимум осознанно: название, тип, дата, ступени напоминаний. Повторения,
  * история замен и приватность — следующие куски ЭТАПА 6.
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
 import { deadlinesRepo } from '../../data/repositories';
 import { daysUntil, formatRu, humanizeDelta, isDateOnly, parseRuDate } from '../../domain/dateOnly';
 import type { Deadline, DeadlineKind } from '../../domain/types';
 import { Banner, Field, Icon, Sheet, Skeleton } from '../../design/ui';
-import { calendarExportSummary, downloadIcs } from '../../notifications/ics';
+import {
+  calendarUpdateSummary,
+  downloadCalendarUpdate,
+  downloadSingleDeadlineIcs,
+  pendingForCalendar,
+  readCalendarExportMarks,
+  type CalendarExportMarks,
+} from '../../notifications/ics';
 import {
   deadlineTone,
   KIND_THRESHOLDS,
@@ -59,6 +66,7 @@ export default function DeadlinesScreen({
   const [calendarNotice, setCalendarNotice] = useState<{ tone: 'ok' | 'err'; text: string } | null>(
     null,
   );
+  const [marks, setMarks] = useState<CalendarExportMarks | null>(null);
 
   const live = useMemo(() => {
     if (!rows) return null;
@@ -66,6 +74,32 @@ export default function DeadlinesScreen({
       .filter((r) => !r.deletedAt && r.visibility === 'family')
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   }, [rows]);
+
+  const refreshMarks = useCallback(() => {
+    void readCalendarExportMarks().then(setMarks);
+  }, []);
+  useEffect(() => refreshMarks(), [refreshMarks]);
+
+  // Файл «только новое»: телефон показывает все события файла и добавляет их разом,
+  // поэтому повторная выгрузка всей семьи плодила дубли (приёмка 03.10).
+  const pending = useMemo(() => (live ? pendingForCalendar(live, marks) : []), [live, marks]);
+
+  const addOneToCalendar = (d: Deadline) => {
+    void downloadSingleDeadlineIcs(d)
+      .then(() => {
+        refreshMarks();
+        setCalendarNotice({
+          tone: 'ok',
+          text: `Скачан файл с одним событием: «${d.title}» (${formatRu(d.dueDate)}), 09:00. Остальные сроки в него не попали. Импортируйте файл в календарь телефона.`,
+        });
+      })
+      .catch(() =>
+        setCalendarNotice({
+          tone: 'err',
+          text: 'Не удалось подготовить событие для календаря. Повторите попытку.',
+        }),
+      );
+  };
 
   if (!ready || !live) {
     return (
@@ -115,7 +149,7 @@ export default function DeadlinesScreen({
           <h2 className="section-title">Просрочено · {overdue.length}</h2>
           <div className="stack">
             {overdue.map((d) => (
-              <DeadlineRow key={d.id} d={d} onEdit={setEditing} />
+              <DeadlineRow key={d.id} d={d} onEdit={setEditing} onCalendar={addOneToCalendar} />
             ))}
           </div>
         </section>
@@ -126,7 +160,7 @@ export default function DeadlinesScreen({
           <h2 className="section-title">Ближайшие · {soon.length}</h2>
           <div className="stack">
             {soon.map((d) => (
-              <DeadlineRow key={d.id} d={d} onEdit={setEditing} />
+              <DeadlineRow key={d.id} d={d} onEdit={setEditing} onCalendar={addOneToCalendar} />
             ))}
           </div>
         </section>
@@ -137,7 +171,7 @@ export default function DeadlinesScreen({
           <h2 className="section-title">Впереди · {later.length}</h2>
           <div className="stack">
             {later.map((d) => (
-              <DeadlineRow key={d.id} d={d} onEdit={setEditing} />
+              <DeadlineRow key={d.id} d={d} onEdit={setEditing} onCalendar={addOneToCalendar} />
             ))}
           </div>
         </section>
@@ -155,12 +189,13 @@ export default function DeadlinesScreen({
         type="button"
         className="btn btn--block"
         style={{ marginTop: 'var(--sp-2)' }}
-        disabled={calendarBusy || live.length === 0}
+        disabled={calendarBusy || pending.length === 0}
         onClick={() => {
           setCalendarBusy(true);
-          void downloadIcs(live)
+          void downloadCalendarUpdate(live)
             .then((result) => {
-              setCalendarNotice({ tone: 'ok', text: calendarExportSummary(result) });
+              refreshMarks();
+              setCalendarNotice({ tone: 'ok', text: calendarUpdateSummary(result) });
             })
             .catch(() => {
               setCalendarNotice({
@@ -172,8 +207,17 @@ export default function DeadlinesScreen({
         }}
       >
         <Icon name="calendar" size={20} />{' '}
-        {calendarBusy ? 'Готовим файл…' : 'В календарь телефона (резервно)'}
+        {calendarBusy
+          ? 'Готовим файл…'
+          : pending.length > 0
+            ? `В календарь: только новое (${pending.length})`
+            : 'В календарь: нового нет'}
       </button>
+      <p className="tiny muted" style={{ margin: 'var(--sp-1) 0 0' }}>
+        {live.length > 0 && pending.length === 0
+          ? 'Все семейные сроки уже выгружались: файл не повторяет их, чтобы не было дублей. Полная выгрузка и сброс отметок — в Настройках → Уведомления. Отдельный срок можно отправить кнопкой с календарём в его строке.'
+          : 'В файл попадают только сроки, которых не было в прежних выгрузках; скачивание само события не добавляет — подтвердите импорт в телефоне.'}
+      </p>
       {calendarNotice && (
         <Banner tone={calendarNotice.tone}>
           <div className="grow small">{calendarNotice.text}</div>
@@ -187,7 +231,15 @@ export default function DeadlinesScreen({
   );
 }
 
-function DeadlineRow({ d, onEdit }: { d: Deadline; onEdit: (d: Deadline) => void }) {
+function DeadlineRow({
+  d,
+  onEdit,
+  onCalendar,
+}: {
+  d: Deadline;
+  onEdit: (d: Deadline) => void;
+  onCalendar: (d: Deadline) => void;
+}) {
   const left = daysUntil(d.dueDate);
   const toneKind = deadlineTone(d);
   const color = toneKind === 'ok' ? 'var(--text-2)' : TONE_COLOR[toneKind];
@@ -216,6 +268,14 @@ function DeadlineRow({ d, onEdit }: { d: Deadline; onEdit: (d: Deadline) => void
         <span className="badge" style={{ color, borderColor: color }}>
           {left < 0 ? `просрочено ${-left} дн.` : humanizeDelta(left)}
         </span>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label={`В календарь: «${d.title}»`}
+          onClick={() => onCalendar(d)}
+        >
+          <Icon name="calendar" size={20} />
+        </button>
         <button
           type="button"
           className="icon-btn"

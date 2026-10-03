@@ -5,7 +5,10 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import NotificationsSection from '../src/features/settings/NotificationsSection';
+import NotificationsSection, {
+  describeEnableError,
+} from '../src/features/settings/NotificationsSection';
+import { GitHubError } from '../src/data/remote/githubClient';
 import { db, kvGet, kvSet } from '../src/data/db';
 import type { Deadline } from '../src/domain/types';
 import { notificationChannels } from '../src/notifications/channels';
@@ -258,4 +261,29 @@ it('быстрая проверка будильника не создаёт с�
   expect(await kvGet(ICS_KEY)).toBeUndefined();
   expect(await db.deadlines.count()).toBe(0);
   expect(calendarClick).toHaveBeenCalledOnce();
+});
+
+describe('текст ошибки включения push (регрессия 03.10)', () => {
+  it('конфликт записи в хранилище не сваливается на «сервисы Google»', () => {
+    const text = describeEnableError(
+      new GitHubError(409, 'data/push/dev-d6348569.json does not match abc123', 'conflict'),
+    );
+    expect(text).toMatch(/одновременно изменился/u);
+    expect(text).toMatch(/Повторите включение/u);
+    expect(text).not.toMatch(/сервисы Google/u);
+  });
+
+  it('сбой сети в хранилище тоже объясняется честно', () => {
+    const text = describeEnableError(new GitHubError(0, 'GitHub не ответил за 20 с', 'timeout'));
+    expect(text).toMatch(/GitHub не ответил/u);
+    expect(text).not.toMatch(/сервисы Google/u);
+  });
+
+  it('о настоящей недоступности push-службы говорим прямо', () => {
+    const domException = Object.assign(new Error('Registration failed - push service error'), {
+      name: 'AbortError',
+    });
+    expect(describeEnableError(domException)).toMatch(/Служба push недоступна/u);
+    expect(describeEnableError(domException)).toMatch(/сервисы Google/u);
+  });
 });

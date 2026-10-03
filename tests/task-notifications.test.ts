@@ -44,12 +44,10 @@ beforeEach(async () => {
   vi.stubGlobal('Notification', { permission: 'granted' });
   vi.stubGlobal('navigator', {
     serviceWorker: {
-      getRegistration: vi
-        .fn()
-        .mockResolvedValue({
-          scope: 'https://fixture.example/FAMILY-HUB/',
-          showNotification: show,
-        }),
+      getRegistration: vi.fn().mockResolvedValue({
+        scope: 'https://fixture.example/FAMILY-HUB/',
+        showNotification: show,
+      }),
     },
   });
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Сеть в тесте запрещена')));

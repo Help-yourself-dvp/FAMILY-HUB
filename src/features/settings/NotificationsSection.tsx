@@ -12,14 +12,22 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  describeStorageFailure,
   notificationChannels,
   type ChannelId,
   type NotificationChannel,
   type SupportReport,
 } from '../../notifications/channels';
+import { GitHubError } from '../../data/remote/githubClient';
 import { Banner, Icon, Switch } from '../../design/ui';
-import { kvGet, kvSet, KV_KEYS } from '../../data/db';
-import { downloadCalendarAlarmTest, downloadCalendarTestIcs } from '../../notifications/ics';
+import { db, kvGet, kvSet, KV_KEYS } from '../../data/db';
+import {
+  calendarUpdateSummary,
+  downloadCalendarAlarmTest,
+  downloadCalendarTestIcs,
+  downloadCalendarUpdate,
+  resetCalendarExportMarks,
+} from '../../notifications/ics';
 import { formatRu } from '../../domain/dateOnly';
 
 export default function NotificationsSection() {
@@ -112,6 +120,35 @@ export default function NotificationsSection() {
       setBusyId(null);
     }
   }, []);
+
+  const fullCalendarExport = () => {
+    void (async () => {
+      try {
+        const rows = await db.deadlines.toArray();
+        const result = await downloadCalendarUpdate(rows, true);
+        setNotice(
+          result.eventCount > 0
+            ? { tone: 'ok', text: calendarUpdateSummary(result) }
+            : { tone: 'warn', text: 'Семейных сроков с датой пока нет — выгружать нечего.' },
+        );
+      } catch (e) {
+        setNotice({
+          tone: 'err',
+          text: e instanceof Error ? e.message : 'Не удалось подготовить файл календаря.',
+        });
+      }
+    })();
+  };
+
+  const resetCalendarMarks = () => {
+    void (async () => {
+      await resetCalendarExportMarks();
+      setNotice({
+        tone: 'ok',
+        text: 'Отметки выгрузки сброшены. Следующая выгрузка «только новое» снова включит в файл все семейные сроки.',
+      });
+    })();
+  };
 
   const testCalendarAlarm = () => {
     try {
@@ -214,6 +251,8 @@ export default function NotificationsSection() {
                   onToggle={(v) => void toggle(c.id, v)}
                   onCalendarTest={testCalendar}
                   onCalendarAlarmTest={testCalendarAlarm}
+                  onCalendarAll={fullCalendarExport}
+                  onCalendarReset={resetCalendarMarks}
                 />
               ))}
             </div>
@@ -232,6 +271,8 @@ function ChannelCard({
   onToggle,
   onCalendarTest,
   onCalendarAlarmTest,
+  onCalendarAll,
+  onCalendarReset,
 }: {
   channel: NotificationChannel;
   support: SupportReport | undefined;
@@ -240,6 +281,8 @@ function ChannelCard({
   onToggle: (v: boolean) => void;
   onCalendarTest: () => void;
   onCalendarAlarmTest: () => void;
+  onCalendarAll: () => void;
+  onCalendarReset: () => void;
 }) {
   const unsupported = Boolean(support && !support.supported);
   const checking = enabled === undefined;
@@ -302,10 +345,22 @@ function ChannelCard({
           <p className="tiny muted" style={{ margin: 0 }}>
             Открытие файла в Android-календаре не подтверждает импорт. Google описывает импорт через
             веб-версию на компьютере: Настройки → Импорт и экспорт. Прямой импорт проверочного
-            события в Honor подтверждён владельцем; полную выгрузку проверьте по датам. После
-            изменения сроков скачайте файл снова; события стоят на датах сроков, не на датах каждого
-            будильника.
+            события в Honor подтверждён владельцем; полную выгрузку проверьте по датам. События
+            стоят на датах сроков, не на датах каждого будильника.
           </p>
+          <p className="tiny muted" style={{ margin: 0 }}>
+            Телефон при импорте показывает все события файла и добавляет их разом: выбрать часть
+            нельзя. Поэтому в Сроки есть выгрузка «только новое» и кнопка с календарём в строке
+            каждого срока — она отдаёт файл ровно с одним событием. Сайт не может сам записать
+            событие в календарь телефона (браузеру системный календарь недоступен): добавление
+            всегда подтверждает человек.
+          </p>
+          <button type="button" className="btn btn--sm" onClick={onCalendarAll}>
+            Полная выгрузка (все сроки)
+          </button>
+          <button type="button" className="btn btn--sm" onClick={onCalendarReset}>
+            Сбросить отметки выгрузки
+          </button>
           <button type="button" className="btn btn--sm" onClick={onCalendarTest}>
             Проверочный календарь: 1 событие
           </button>
@@ -347,10 +402,22 @@ function ChannelCard({
 }
 
 /** Человек вместо DOMException: почему push не включился на этом устройстве. */
-function describeEnableError(e: unknown): string {
-  const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-  if (/push|subscription|registr/iu.test(msg)) {
-    return `Web Push недоступен на этом устройстве (${msg}). На Android для push нужны сервисы Google. При открытии приложение проверяет сроки локально; момент фоновой проверки Android выбирает Chrome, без гарантии времени.`;
+export function describeEnableError(e: unknown): string {
+  const name = e instanceof Error ? e.name : '';
+  const msg = e instanceof Error ? e.message : String(e);
+  // Сбой записи в семейное хранилище — это НЕ проблема устройства и не «нет
+  // сервисов Google» (регрессия приёмки 03.10: слово push в пути файла давало
+  // ложный совет про сервисы Google).
+  if (e instanceof GitHubError) return describeStorageFailure(e);
+  if (name === 'NotAllowedError') {
+    return 'Разрешение на уведомления не выдано. Проверьте разрешения сайта в настройках браузера и телефона.';
+  }
+  if (
+    name === 'AbortError' ||
+    name === 'InvalidStateError' ||
+    /push service|registration failed|no active service worker|subscription failed/iu.test(msg)
+  ) {
+    return `Служба push недоступна на этом устройстве (${msg}). На Android её обеспечивают сервисы Google: проверьте, что они включены и обновлены. Пока push не работает, напоминания приходят при открытом приложении; момент фоновой проверки Chrome выбирает сам, без гарантии времени.`;
   }
   return `Не удалось включить канал: ${msg}`;
 }

@@ -17,7 +17,7 @@ import { notificationAppearance } from './appearance';
 import { log } from '../shared/log';
 import { loadSession } from '../data/session';
 import { auth } from '../data/remote/authStrategy';
-import { GitHubClient } from '../data/remote/githubClient';
+import { GitHubClient, GitHubError } from '../data/remote/githubClient';
 
 export type ChannelId = 'local-foreground' | 'ics-calendar' | 'web-push';
 
@@ -33,6 +33,72 @@ export interface SupportReport {
 export interface EnableResult {
   enabled: boolean;
   reason?: string;
+}
+
+/**
+ * Запись файла поверх возможной параллельной записи.
+ *
+ * Факт приёмки 2026-10-03: включение push падало с GitHub 409
+ * («data/push/<device>.json does not match <sha>»). Так отвечает GitHub, когда
+ * между нашим чтением sha и записью файл успел изменить кто-то ещё (второе
+ * устройство, автоматический отправитель напоминаний, повторный тап по тумблеру).
+ * Операция идемпотентна: перечитываем свежий sha и повторяем. Конфликт — не
+ * ошибка устройства и не «нет сервисов Google», поэтому и текст должен быть честным.
+ */
+export interface ResilientWriteDeps {
+  readSha: () => Promise<string | null>;
+  write: (sha: string | null) => Promise<unknown>;
+}
+
+export async function writeWithConflictRetry(
+  deps: ResilientWriteDeps,
+  attempts = 3,
+): Promise<{ attempts: number }> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const sha = await deps.readSha();
+    try {
+      await deps.write(sha);
+      return { attempts: attempt };
+    } catch (e) {
+      lastError = e;
+      const conflict = e instanceof GitHubError && e.code === 'conflict';
+      log.emit({
+        type: 'push:step',
+        step: conflict ? `upload-conflict-${attempt}` : `upload-failed-${attempt}`,
+      });
+      if (!conflict) throw e;
+    }
+  }
+  if (lastError instanceof Error) throw lastError;
+  throw new Error(
+    lastError === undefined
+      ? 'не удалось записать файл'
+      : `не удалось записать файл: ${typeof lastError}`,
+  );
+}
+
+/** Человеческое объяснение сбоя записи в семейное хранилище (без обвинений не по делу). */
+export function describeStorageFailure(e: unknown): string {
+  if (!(e instanceof GitHubError)) {
+    return `Подписка создана, но сохранить её не удалось: ${e instanceof Error ? e.message : String(e)}. Повторите включение.`;
+  }
+  switch (e.code) {
+    case 'conflict':
+      return 'Подписка создана, но файл одновременно изменился в семейном хранилище (так бывает при второй попытке или записи с другого устройства). Повторите включение — данные уже готовы, нужен только повтор.';
+    case 'timeout':
+    case 'network':
+      return 'Подписка создана, но GitHub не ответил (сеть). Повторите включение при устойчивой связи — подписка уже сохранена в телефоне.';
+    case 'rate-limit':
+    case 'secondary-limit':
+      return 'Подписка создана, но GitHub временно ограничил запросы. Повторите включение через несколько минут.';
+    case 'forbidden':
+    case 'unauthorized':
+    case 'no-token':
+      return 'Подписка создана, но нет доступа к семейному хранилищу. Проверьте подключение хранилища и токен в настройках.';
+    default:
+      return `Подписка создана, но сохранить её не удалось (${e.message}). Повторите включение.`;
+  }
 }
 
 export interface FamilyEvent {
@@ -234,6 +300,12 @@ class WebPushChannel implements NotificationChannel {
   readonly needsExternalInfra = true;
   readonly level = 2 as const;
 
+  /**
+   * Защита от гонки: пока идёт включение/выключение, второй тап не запускает
+   * вторую параллельную запись того же файла (именно она давала GitHub 409).
+   */
+  private toggling = false;
+
   isSupported(): Promise<SupportReport> {
     if (
       typeof window === 'undefined' ||
@@ -267,6 +339,21 @@ class WebPushChannel implements NotificationChannel {
   async enable(): Promise<EnableResult> {
     const s = await this.isSupported();
     if (!s.supported) return { enabled: false, reason: s.reason };
+    if (this.toggling) {
+      return {
+        enabled: false,
+        reason: 'Включение уже выполняется — подождите пару секунд и проверьте состояние ещё раз.',
+      };
+    }
+    this.toggling = true;
+    try {
+      return await this.enableOnce();
+    } finally {
+      this.toggling = false;
+    }
+  }
+
+  private async enableOnce(): Promise<EnableResult> {
     log.emit({ type: 'push:step', step: 'enable-start' });
 
     const owner = await kvGet<string>(KV_KEYS.remoteOwner);
@@ -318,29 +405,42 @@ class WebPushChannel implements NotificationChannel {
     const deviceId = pushSession.deviceId;
     const client = new GitHubClient({ owner, repo, branch }, () => auth.getToken());
     const path = `data/push/${deviceId}.json`;
-    const cur = await client.getFile(path);
-    const sha = cur.status === 'ok' ? cur.file.sha : null;
-    await client.putFile(
-      path,
-      JSON.stringify(
-        {
-          deviceId,
-          memberId: pushSession.memberEntityId || deviceId,
-          subscribedAt: new Date().toISOString(),
-          revoked: false,
-          subscription: sub.toJSON(),
-        },
-        null,
-        2,
-      ),
-      sha,
-      `push: подписка устройства ${deviceId}`,
+    const payload = JSON.stringify(
+      {
+        deviceId,
+        memberId: pushSession.memberEntityId || deviceId,
+        subscribedAt: new Date().toISOString(),
+        revoked: false,
+        subscription: sub.toJSON(),
+      },
+      null,
+      2,
     );
-    log.emit({ type: 'push:step', step: 'upload-ok' });
+    try {
+      const { attempts } = await writeWithConflictRetry({
+        readSha: async () => {
+          const cur = await client.getFile(path);
+          return cur.status === 'ok' ? cur.file.sha : null;
+        },
+        write: (sha) => client.putFile(path, payload, sha, `push: подписка устройства ${deviceId}`),
+      });
+      log.emit({
+        type: 'push:step',
+        step: attempts > 1 ? `upload-ok-retry-${attempts}` : 'upload-ok',
+      });
+    } catch (e) {
+      // Подписка в телефоне уже есть — второй тап доведёт дело до конца, поэтому
+      // возвращаем понятную причину, а не роняем включение с обвинением устройству.
+      const reason = describeStorageFailure(e);
+      log.emit({ type: 'push:step', step: 'upload-aborted' });
+      return { enabled: false, reason };
+    }
     return { enabled: true };
   }
 
   async disable(): Promise<void> {
+    if (this.toggling) return;
+    this.toggling = true;
     try {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
@@ -352,16 +452,22 @@ class WebPushChannel implements NotificationChannel {
       const deviceId = (await loadSession()).deviceId;
       const client = new GitHubClient({ owner, repo, branch }, () => auth.getToken());
       const path = `data/push/${deviceId}.json`;
-      const cur = await client.getFile(path);
-      const sha = cur.status === 'ok' ? cur.file.sha : null;
-      await client.putFile(
-        path,
-        JSON.stringify({ deviceId, revoked: true, at: new Date().toISOString() }, null, 2),
-        sha,
-        `push: отписка устройства ${deviceId}`,
+      const payload = JSON.stringify(
+        { deviceId, revoked: true, at: new Date().toISOString() },
+        null,
+        2,
       );
+      await writeWithConflictRetry({
+        readSha: async () => {
+          const cur = await client.getFile(path);
+          return cur.status === 'ok' ? cur.file.sha : null;
+        },
+        write: (sha) => client.putFile(path, payload, sha, `push: отписка устройства ${deviceId}`),
+      });
     } catch {
       // Отписка — не критично: мёртвые подписки отправитель удалит сам по 410.
+    } finally {
+      this.toggling = false;
     }
   }
   deliver(): Promise<DeliveryReport> {
