@@ -138,39 +138,6 @@ export function buildDeadlinesIcs(deadlines: Deadline[], opts: IcsBuildOptions =
 }
 
 /** Файл ровно с одним сроком: для добавления по одному, без повторного импорта всех. */
-/**
- * Черновик события прямо из данных формы — до сохранения срока.
- *
- * Нужен, чтобы на iPhone системное окно календаря открывалось ИЗ САМОГО нажатия
- * «Добавить» (Safari открывает окно и запускает загрузку только по действию человека;
- * после ожиданий сохранения жест «сгорает»). Будильники берём из формы — те же ступени,
- * что сохранятся у срока. UID черновой: событие добавляется один раз, этим файлом.
- */
-export function draftDeadlineForCalendar(
-  d: Pick<Deadline, 'title' | 'dueDate'>,
-  remindersDays: number[] = [],
-): Deadline {
-  const at = new Date().toISOString();
-  return {
-    id: `family-hub-draft-${d.dueDate}`,
-    rev: 0,
-    kind: 'deadlines',
-    createdAt: at,
-    updatedAt: at,
-    updatedBy: 'local',
-    deletedAt: null,
-    title: d.title,
-    deadlineKind: 'document',
-    dueDate: d.dueDate,
-    remindersDays,
-    recurrence: { type: 'none' },
-    lastCompletedAt: null,
-    history: [],
-    visibility: 'family',
-    note: null,
-  };
-}
-
 export function buildSingleDeadlineIcs(deadline: Deadline, opts: IcsBuildOptions = {}): string {
   return icsContainer('Family Hub — срок', eventLines(deadline, opts.now ?? new Date()));
 }
@@ -200,10 +167,6 @@ export function googleCalendarUrl(d: Pick<Deadline, 'title' | 'dueDate'>): strin
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
-/** Порядок открытия окна календаря после сохранения срока (см. DeadlinesScreen). */
-export const CALENDAR_OPEN_TARGET = '_blank';
-
-/** Пакет приложения Google Календаря на Android. */
 export const GOOGLE_CALENDAR_APP_PACKAGE = 'com.google.android.calendar';
 
 /**
@@ -292,28 +255,34 @@ function createIcsBlobUrl(content: string): string {
 }
 
 /**
- * Один срок сразу в системное окно календаря (iPhone/iPad).
+ * Один срок — сразу в системное окно календаря (iPhone/iPad), переходом в ТЕКУЩЕЙ вкладке.
  *
- * Синхронно, из действия человека: Safari открывает окно только по прямому переходу,
- * поэтому никаких await до этого места. Возвращает false, если браузер заблокировал
- * новую вкладку — тогда экран предложит сохранить файл.
+ * Почему не новая вкладка: Safari на iPhone не умеет открывать blob-адреса в новой вкладке —
+ * владелец проверил 03.10.2026: вкладка показывала адрес и висела на загрузке вечно.
+ * Переход в текущей вкладке — способ, проверенный на живых iPhone (z9bl/gpk-calculator,
+ * PR #114: blob: + переход даёт системное окно «Добавить в календарь»).
+ *
+ * Переход делается по нажатию человека (тап по кнопке) — браузеры не запускают переход
+ * к файлу сами. Файл в «Файлы» не попадает: содержимое живёт в памяти браузера.
  */
-export function openSingleDeadlineIcs(d: Deadline): boolean {
-  if (typeof window === 'undefined') return false;
+export function openSingleDeadlineIcsInPlace(d: Deadline): void {
+  if (typeof document === 'undefined') return;
   const url = createIcsBlobUrl(buildSingleDeadlineIcs(d));
   const revoke = URL.revokeObjectURL.bind(URL);
-  let opened: boolean;
+  const anchor = document.createElement('a');
+  // Без target и без download: это переход, а не скачивание в «Загрузки».
+  anchor.href = url;
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
   try {
-    opened = window.open(url, CALENDAR_OPEN_TARGET) !== null;
-  } catch {
-    opened = false;
+    anchor.click();
+  } finally {
+    anchor.remove();
+    setTimeout(() => revoke(url), 15_000);
   }
-  // Если вкладку заблокировали, ссылку не держим; иначе даём системе время её забрать.
-  setTimeout(() => revoke(url), opened ? 15_000 : 0);
   void db.transaction('rw', db.kv, async () => {
     await kvSet(KV_KEYS.notifyIcsDownloaded, true);
   });
-  return opened;
 }
 
 function downloadCalendarFile(content: string, filename: string): void {

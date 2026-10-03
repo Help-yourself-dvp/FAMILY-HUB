@@ -17,10 +17,9 @@ import {
   calendarExportSummary,
   downloadIcs,
   downloadSingleDeadlineIcs,
-  draftDeadlineForCalendar,
   isAndroidClient,
   isIosClient,
-  openSingleDeadlineIcs,
+  openSingleDeadlineIcsInPlace,
   type IcsDownloadResult,
 } from '../../notifications/ics';
 import {
@@ -65,7 +64,7 @@ export default function DeadlinesScreen({
   // Честная подпись: что именно произойдёт после нажатия. Скрыть системный шаг нельзя —
   // календарь всегда спрашивает подтверждение сам.
   const calendarHelp = ios
-    ? 'Откроется системное окно Календаря: выберите календарь и нажмите «Добавить». Если окно не появилось — нажмите «Скачать файлом».'
+    ? 'Откроется системное окно Календаря Apple: выберите календарь и нажмите «Добавить». Если окно не появилось — нажмите «Скачать файлом» (файл откроете в «Загрузках»).'
     : android
       ? 'Файл скачается. Нажмите «Открыть» в плашке загрузки (или откройте «Загрузки») — календарь покажет окно события: выберите календарь и нажмите «Сохранить».'
       : 'Файл скачается — откройте его, чтобы добавить событие в календарь.';
@@ -93,39 +92,23 @@ export default function DeadlinesScreen({
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   }, [rows]);
 
-  const handleSaved = (d: Deadline, addToCalendar: boolean, openedOnIos = false) => {
-    // На iPhone системное окно уже открылось из самого нажатия «Добавить»: остаётся
-    // выбрать календарь и подтвердить. Окно-вопрос показываем только как подстраховку.
-    setCalendarNotice(
-      openedOnIos
-        ? {
-            tone: 'ok',
-            text: 'Открылось системное окно события: выберите календарь и нажмите «Добавить». Если окно не появилось — нажмите «Скачать файлом» в окне ниже.',
-          }
-        : null,
-    );
-    setCalendarPrompt(addToCalendar && !openedOnIos ? { deadline: d } : null);
+  const handleSaved = (d: Deadline, addToCalendar: boolean) => {
+    setCalendarNotice(null);
+    setCalendarPrompt(addToCalendar ? { deadline: d } : null);
   };
 
   /**
-   * Кнопка окна-вопроса. На iPhone — сразу системное окно календаря (Safari показывает
-   * его при прямом переходе на .ics). На Android и компьютере — скачивание файла: открыть
-   * его за пользователя сайт не может, поэтому в подписи честно сказано, что нажать дальше.
+   * Кнопка окна-вопроса. На iPhone — системное окно календаря переходом в текущей вкладке
+   * (в новой вкладке Safari на iPhone blob-файл не открывает — проверено владельцем).
+   * На Android и компьютере — скачивание файла: открыть его за пользователя сайт не может.
    */
   const addOneToCalendar = (d: Deadline) => {
     if (ios) {
-      const opened = openSingleDeadlineIcs(d);
-      setCalendarNotice(
-        opened
-          ? {
-              tone: 'ok',
-              text: 'Открылось системное окно события: выберите календарь и нажмите «Добавить». Если окно не появилось — нажмите «Скачать файлом».',
-            }
-          : {
-              tone: 'warn',
-              text: 'Браузер не открыл окно сам. Нажмите «Скачать файлом» и коснитесь файла в «Загрузках» — Календарь покажет то же окно события.',
-            },
-      );
+      openSingleDeadlineIcsInPlace(d);
+      setCalendarNotice({
+        tone: 'ok',
+        text: 'Открылось системное окно Календаря: выберите календарь и нажмите «Добавить». Если окно не появилось — нажмите «Скачать файлом».',
+      });
       return;
     }
     downloadOneForCalendar(d);
@@ -280,7 +263,7 @@ export default function DeadlinesScreen({
                 className="btn btn--sm btn--primary"
                 onClick={() => addOneToCalendar(calendarPrompt.deadline)}
               >
-                {ios ? 'Открыть окно события' : 'Скачать файл события'}
+                {ios ? 'Открыть окно календаря' : 'Скачать файл события'}
               </button>
               {ios && (
                 <button
@@ -383,11 +366,8 @@ function DeadlineSheet({
 }: {
   onClose: () => void;
   editing?: Deadline | null;
-  /**
-   * Вызывается после сохранения. Третий аргумент — удалось ли уже открыть системное окно
-   * календаря на iPhone (тогда окно-вопрос не нужно, только подстраховка).
-   */
-  onSaved?: (d: Deadline, addToCalendar: boolean, openedOnIos?: boolean) => void;
+  /** Вызывается после сохранения: экран покажет окно-вопрос про календарь. */
+  onSaved?: (d: Deadline, addToCalendar: boolean) => void;
 }) {
   const [title, setTitle] = useState(editing?.title ?? '');
   const [kind, setKind] = useState<DeadlineKind>(editing?.deadlineKind ?? 'document');
@@ -429,15 +409,8 @@ function DeadlineSheet({
     }
     setBusy(true);
     setError(null);
-    // iPhone: системное окно календаря открываем СИНХРОННО, из самого нажатия
-    // «Добавить». Safari показывает окно события только по действию человека, а после
-    // ожиданий жест «сгорает». Данные берём из формы (черновик) — сохранение срока
-    // это окно не задерживает. Если браузер вкладку заблокирует, экран покажет
-    // подстраховку (окно-вопрос с «Открыть окно события» и «Скачать файлом»).
-    const iosWindow =
-      addToCalendar && isIosClient()
-        ? openSingleDeadlineIcs(draftDeadlineForCalendar({ title: raw, dueDate: due }, steps))
-        : false;
+    // Сначала сохраняем срок, и только потом предлагаем добавить событие в календарь:
+    // переход к файлу уводит страницу, поэтому до него данные обязаны быть записаны.
     try {
       await kvSet(KV_KEYS.notifyCalendarAddOnSave, addToCalendar);
       const patch = {
@@ -453,7 +426,7 @@ function DeadlineSheet({
         : await deadlinesRepo.add(patch);
       onClose();
       const deadline = saved ?? (editing ? { ...editing, ...patch } : null);
-      if (deadline) onSaved?.(deadline, addToCalendar, iosWindow);
+      if (deadline) onSaved?.(deadline, addToCalendar);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Неизвестная ошибка');
     } finally {

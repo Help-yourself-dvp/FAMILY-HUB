@@ -13,12 +13,11 @@ import {
   calendarTestDeadline,
   downloadIcs,
   downloadSingleDeadlineIcs,
-  draftDeadlineForCalendar,
   escapeIcsText,
   foldIcsLine,
   googleCalendarUrl,
   isIosClient,
-  openSingleDeadlineIcs,
+  openSingleDeadlineIcsInPlace,
 } from '../src/notifications/ics';
 import { db } from '../src/data/db';
 import type { Deadline } from '../src/domain/types';
@@ -136,7 +135,7 @@ it('быстрая проверка native alarm: одна UTC-встреча, 1
 });
 
 describe('календарь: одно событие и окно создания записи (решение владельца 03.10)', () => {
-  const createObjectURL = vi.fn(() => 'blob:test-calendar');
+  const createObjectURL = vi.fn((_blob: Blob) => 'blob:test-calendar');
   let restoreUrl = () => undefined;
 
   beforeEach(async () => {
@@ -205,33 +204,42 @@ describe('календарь: одно событие и окно создани
     expect(createObjectURL).toHaveBeenCalledTimes(1);
   });
 
-  it('черновик события собирается из полей формы и несёт её ступени напоминаний', () => {
-    const draft = draftDeadlineForCalendar({ title: 'Из формы', dueDate: '2027-05-01' }, [7, 0]);
-    const ics = buildSingleDeadlineIcs(draft, { now: new Date('2026-10-03T12:00:00Z') });
-    expect(ics).toContain('SUMMARY:[Срок] Из формы');
-    expect(ics).toContain('DTSTART;TZID=Europe/Moscow:20270501T090000');
-    // Ровно те ступени, что выбраны в форме: за 7 дней и в день срока.
-    expect(ics.match(/BEGIN:VALARM/gu)?.length).toBe(2);
-    expect(ics).toContain('TRIGGER:-P7D');
-    expect(ics).toContain('TRIGGER:PT0S');
+  it('на iPhone событие открывается переходом в ТЕКУЩЕЙ вкладке (новая вкладка зависала)', () => {
+    // Владелец проверил 03.10.2026: в новой вкладке Safari показывал адрес и висел на
+    // загрузке вечно. Поэтому переход делаем в текущей вкладке и без атрибута download.
+    const clicked: Array<{ href: string; download: string; target: string }> = [];
+    const spy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clicked.push({
+        href: this.getAttribute('href') ?? '',
+        download: this.download,
+        target: this.target,
+      });
+    });
+    openSingleDeadlineIcsInPlace(dl({ id: 'a' }));
+    spy.mockRestore();
+    expect(clicked).toHaveLength(1);
+    expect(clicked[0]?.href).toBe('blob:test-calendar');
+    // Без download: это переход к календарю, а не скачивание в «Загрузки».
+    expect(clicked[0]?.download).toBe('');
+    // Без target: переход в ТЕКУЩЕЙ вкладке — в новой вкладке Safari висел на загрузке.
+    expect(clicked[0]?.target).toBe('');
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
   });
 
-  it('на iPhone файл открывается сразу в новой вкладке — системное окно Календаря', () => {
-    const open = vi.fn((_url?: string | URL) => ({}) as Window);
-    vi.stubGlobal('open', open);
-    const opened = openSingleDeadlineIcs(dl({ id: 'a' }));
-    expect(opened).toBe(true);
-    // Переход делается синхронно, из действия человека: иначе Safari не покажет окно.
-    expect(open).toHaveBeenCalledTimes(1);
-    expect(String(open.mock.calls[0]?.[0])).toBe('blob:test-calendar');
-    vi.unstubAllGlobals();
-  });
-
-  it('если браузер заблокировал вкладку, честно возвращаем false и ссылку не держим', () => {
-    const open = vi.fn((_url?: string | URL) => null);
-    vi.stubGlobal('open', open);
-    expect(openSingleDeadlineIcs(dl({ id: 'a' }))).toBe(false);
-    vi.unstubAllGlobals();
+  it('файл для одного события несёт его дату, время и ступени напоминаний', async () => {
+    const spy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    openSingleDeadlineIcsInPlace(dl({ id: 'a', remindersDays: [7, 0] }));
+    spy.mockRestore();
+    const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
+    expect(blob.type).toContain('text/calendar');
+    const text = await blob.text();
+    expect(text).toContain('SUMMARY:[Срок] ТО автомобиля');
+    expect(text).toContain('DTSTART;TZID=Europe/Moscow:20261115T090000');
+    expect(text.match(/BEGIN:VALARM/gu)?.length).toBe(2);
+    expect(text).toContain('TRIGGER:-P7D');
+    expect(text).toContain('TRIGGER:PT0S');
   });
 });
 
