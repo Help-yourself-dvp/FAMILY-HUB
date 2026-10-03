@@ -419,7 +419,7 @@ class WebPushChannel implements NotificationChannel {
     try {
       const { attempts } = await writeWithConflictRetry({
         readSha: async () => {
-          const cur = await client.getFile(path);
+          const cur = await client.getFile(path, null, true);
           return cur.status === 'ok' ? cur.file.sha : null;
         },
         write: (sha) => client.putFile(path, payload, sha, `push: подписка устройства ${deviceId}`),
@@ -459,7 +459,7 @@ class WebPushChannel implements NotificationChannel {
       );
       await writeWithConflictRetry({
         readSha: async () => {
-          const cur = await client.getFile(path);
+          const cur = await client.getFile(path, null, true);
           return cur.status === 'ok' ? cur.file.sha : null;
         },
         write: (sha) => client.putFile(path, payload, sha, `push: отписка устройства ${deviceId}`),
