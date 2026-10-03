@@ -1,10 +1,10 @@
 {
-  "buildId": "0.3.9-muqxzmfh",
-  "version": "0.3.9",
-  "generatedAt": "2026-10-02T12:31:30.125Z",
+  "buildId": "0.4.0-mus34bua",
+  "version": "0.4.0",
+  "generatedAt": "2026-10-03T07:42:53.939Z",
   "precache": [
-    "assets/index-LXPHH7u9.js",
     "assets/index-Nfgw5g_S.css",
+    "assets/index-bPHt7F3a.js",
     "icons/apple-touch-icon.png",
     "icons/favicon-32.png",
     "icons/icon-192.png",

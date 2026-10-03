@@ -156,7 +156,7 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
               <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
                 {activity.map((a) => (
                   <div key={a.id} className="row" style={{ gap: 'var(--sp-3)' }}>
-                    <span className="badge badge--accent">{actionLabel(a.action)}</span>
+                    <span className="badge badge--accent">{actionLabel(a.action, a.kind)}</span>
                     <div className="grow">
                       {a.place && (
                         <div className="tiny" style={{ color: 'var(--accent)', marginBottom: 2 }}>
@@ -191,8 +191,9 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         <div className="card-title">Дела и сроки</div>
         <div className="small muted" style={{ marginTop: 'var(--sp-3)' }}>
           «Сроки» уже работают: документы, ТО, дни рождения — с напоминаниями.{' '}
-          <Link to="/deadlines">Открыть сроки</Link>. Модуль «Дела» (кто что обещал сделать) — в
-          разработке.
+          <Link to="/deadlines">Открыть сроки</Link>. «Дела» — общий список с исполнителем,
+          необязательным сроком и отметкой выполнения. <Link to="/tasks">Открыть дела</Link>.
+          Повторения и уведомления для дел пока не подключены.
         </div>
       </div>
     </div>
@@ -202,14 +203,14 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
 /* Заголовок и вход в настройки вынесены в верхнюю панель и нижнюю навигацию
    (приёмка 0.1.5: два входа в настройки и съедаемая строка заголовка). */
 
-function actionLabel(a: string): string {
+function actionLabel(a: string, kind: string): string {
   switch (a) {
     case 'created':
       return 'добавлено';
     case 'updated':
       return 'изменено';
     case 'completed':
-      return 'куплено';
+      return kind === 'tasks' ? 'выполнено' : 'куплено';
     case 'deleted':
       return 'удалено';
     default:

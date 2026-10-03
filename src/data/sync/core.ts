@@ -69,17 +69,25 @@ export interface RemoteChangeEvent {
 }
 
 type ShoppingLike = { title?: string; qty?: number | null; category?: string | null };
+type TaskLike = {
+  status?: string;
+  note?: string | null;
+  dueDate?: string | null;
+  assigneeId?: string | null;
+};
 
 /** Чистое правило вывода действия из «было/стало» (покрыто тестом). */
 export function remoteActionOf<T extends Syncable>(
   prev: T | undefined,
   next: T,
 ): RemoteChangeEvent['action'] {
-  const nextAny = next as Syncable & { done?: boolean; deletedAt?: string | null };
-  const prevAny = prev as (Syncable & { done?: boolean; deletedAt?: string | null }) | undefined;
+  const nextAny = next as Syncable & TaskLike & { done?: boolean; deletedAt?: string | null };
+  const prevAny = prev as
+    (Syncable & TaskLike & { done?: boolean; deletedAt?: string | null }) | undefined;
   if (!prev) return 'created';
   if (nextAny.deletedAt && !prevAny?.deletedAt) return 'deleted';
   if (nextAny.done && !prevAny?.done) return 'completed';
+  if (nextAny.status === 'done' && prevAny?.status !== 'done') return 'completed';
   return 'updated';
 }
 
@@ -171,7 +179,12 @@ async function attemptSync<T extends Syncable>(
         !prev ||
         prev.title !== titled.title ||
         prev.qty !== (next as ShoppingLike).qty ||
-        prev.category !== (next as ShoppingLike).category,
+        prev.category !== (next as ShoppingLike).category ||
+        (kind === 'tasks' &&
+          ((prev as TaskLike).status !== (next as TaskLike).status ||
+            (prev as TaskLike).note !== (next as TaskLike).note ||
+            (prev as TaskLike).dueDate !== (next as TaskLike).dueDate ||
+            (prev as TaskLike).assigneeId !== (next as TaskLike).assigneeId)),
       category: (next as ShoppingLike).category ?? null,
     });
   }

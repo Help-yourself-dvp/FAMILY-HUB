@@ -10,8 +10,8 @@ import { db, kvSet } from './db';
 import { session } from './session';
 import { notifyLocalChange } from './sync/engine';
 import { canonicalKey } from '../domain/normalize';
-import type { Deadline, Horizon, Member, ShoppingItem } from '../domain/types';
-import type { DateOnly } from '../domain/dateOnly';
+import type { Deadline, EntityKind, Horizon, Member, ShoppingItem, Task } from '../domain/types';
+import { isDateOnly, type DateOnly } from '../domain/dateOnly';
 import { newId } from '../shared/id';
 
 export interface NewShoppingInput {
@@ -253,18 +253,21 @@ export async function appendActivity(
   action: 'created' | 'updated' | 'completed' | 'deleted',
   title: string,
   actor?: { id: string; name: string },
-  meta?: { kind?: string; place?: string | null },
+  meta?: { kind?: EntityKind; place?: string | null },
 ): Promise<void> {
   const s = session();
   const short = title.length > 40 ? `${title.slice(0, 40)}…` : title;
   // Дедупликация (приёмка 0.1.9): циклы синхронизации могут приносить одно и то же
   // событие повторно — лента не должна двоиться и вытеснять настоящие записи.
   const actorId = actor?.id ?? s.deviceId;
+  const kind = meta?.kind ?? 'shopping';
   const since = new Date(Date.now() - 5 * 60_000).toISOString();
   const dup = await db.activity
     .where('at')
     .above(since)
-    .filter((a) => a.actorId === actorId && a.action === action && a.title === short)
+    .filter(
+      (a) => a.kind === kind && a.actorId === actorId && a.action === action && a.title === short,
+    )
     .first();
   if (dup) return;
   await db.activity.put({
@@ -272,7 +275,7 @@ export async function appendActivity(
     at: new Date().toISOString(),
     actorId,
     actorName: actor?.name || s.name || 'Устройство',
-    kind: meta?.kind === 'deadlines' ? 'deadlines' : 'shopping',
+    kind,
     action,
     title: short,
     place: meta?.place ?? null,
@@ -368,5 +371,114 @@ export const deadlinesRepo = {
       place: placeLabel('deadlines'),
     });
     notifyLocalChange();
+  },
+};
+
+/* ------------------------------- Дела (база ЭТАПА 7) ------------------------------- */
+export interface NewTaskInput {
+  title: string;
+  note?: string | null;
+  assigneeId?: string | null;
+  dueDate?: DateOnly | null;
+}
+
+function normalizedTaskInput(input: NewTaskInput) {
+  const title = input.title.trim();
+  if (!title) throw new Error('Напишите, что нужно сделать.');
+  const dueDate = input.dueDate || null;
+  if (dueDate && !isDateOnly(dueDate)) throw new Error('Проверьте дату срока.');
+  return { title, note: input.note?.trim() || null, assigneeId: input.assigneeId || null, dueDate };
+}
+
+export const tasksRepo = {
+  /** Локальная запись + лента атомарно. Никакой сети в мутации интерфейса. */
+  async add(input: NewTaskInput): Promise<Task> {
+    const fields = normalizedTaskInput(input);
+    const s = stamp();
+    const item: Task = {
+      ...fields,
+      id: newId(),
+      kind: 'tasks',
+      rev: 1,
+      createdAt: s.updatedAt,
+      updatedAt: s.updatedAt,
+      updatedBy: s.updatedBy,
+      deletedAt: null,
+      status: 'open',
+      doneAt: null,
+      recurrence: { type: 'none' },
+    };
+    await db.transaction('rw', db.tasks, db.activity, async () => {
+      await db.tasks.put(item);
+      await appendActivity('created', item.title, undefined, {
+        kind: 'tasks',
+        place: placeLabel('tasks'),
+      });
+    });
+    notifyLocalChange();
+    return item;
+  },
+
+  async update(id: string, patch: Partial<NewTaskInput>): Promise<void> {
+    let changed = false;
+    await db.transaction('rw', db.tasks, db.activity, async () => {
+      const current = await db.tasks.get(id);
+      if (!current || current.deletedAt) return;
+      const fields = normalizedTaskInput({ ...current, ...patch });
+      if (
+        fields.title === current.title &&
+        fields.note === current.note &&
+        fields.assigneeId === current.assigneeId &&
+        fields.dueDate === current.dueDate
+      )
+        return;
+      const s = stamp();
+      await db.tasks.put({ ...current, ...fields, ...s, rev: current.rev + 1 });
+      await appendActivity('updated', fields.title, undefined, {
+        kind: 'tasks',
+        place: placeLabel('tasks'),
+      });
+      changed = true;
+    });
+    if (changed) notifyLocalChange();
+  },
+
+  /** Желаемое состояние, не toggle: два быстрых нажатия не делают обратную правку. */
+  async setDone(id: string, done: boolean): Promise<void> {
+    let changed = false;
+    await db.transaction('rw', db.tasks, db.activity, async () => {
+      const current = await db.tasks.get(id);
+      if (!current || current.deletedAt || (current.status === 'done') === done) return;
+      const s = stamp();
+      await db.tasks.put({
+        ...current,
+        ...s,
+        rev: current.rev + 1,
+        status: done ? 'done' : 'open',
+        doneAt: done ? s.updatedAt : null,
+      });
+      await appendActivity(done ? 'completed' : 'updated', current.title, undefined, {
+        kind: 'tasks',
+        place: placeLabel('tasks'),
+      });
+      changed = true;
+    });
+    if (changed) notifyLocalChange();
+  },
+
+  async remove(id: string): Promise<void> {
+    let changed = false;
+    await db.transaction('rw', db.tasks, db.activity, async () => {
+      const current = await db.tasks.get(id);
+      if (!current || current.deletedAt) return;
+      const s = stamp();
+      await db.tasks.put({ ...current, ...s, rev: current.rev + 1, deletedAt: s.updatedAt });
+      await appendActivity('deleted', current.title, undefined, {
+        kind: 'tasks',
+        place: placeLabel('tasks'),
+      });
+      changed = true;
+    });
+    if (changed) notifyLocalChange();
   },
 };

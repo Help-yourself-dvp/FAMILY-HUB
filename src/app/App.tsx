@@ -12,7 +12,7 @@ import { flushNow } from '../data/sync/engine';
 import { ErrorBoundary } from './ErrorBoundary';
 import HomeScreen from '../features/home/HomeScreen';
 import ShoppingScreen from '../features/shopping/ShoppingScreen';
-import TasksScreen from '../features/tasks/PlaceholderScreen';
+import TasksScreen from '../features/tasks/TasksScreen';
 import DeadlinesScreen from '../features/deadlines/DeadlinesScreen';
 import SettingsScreen from '../features/settings/SettingsScreen';
 
@@ -62,7 +62,20 @@ function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: strin
                 />
               }
             />
-            <Route path="/tasks" element={<TasksScreen />} />
+            <Route
+              path="/tasks"
+              element={
+                <TasksScreen
+                  ready={ready}
+                  composeKey={
+                    loc.pathname === '/tasks' &&
+                    (loc.state as { compose?: boolean } | null)?.compose === true
+                      ? loc.key
+                      : null
+                  }
+                />
+              }
+            />
             <Route
               path="/deadlines"
               element={
@@ -156,9 +169,8 @@ function QuickAddFab() {
           >
             <Icon name="cart" size={20} /> Добавить покупку
           </button>
-          <button type="button" className="btn btn--block" onClick={() => go('/tasks')} disabled>
+          <button type="button" className="btn btn--block" onClick={() => go('/tasks')}>
             <Icon name="check" size={20} /> Добавить дело
-            <span className="badge">в разработке</span>
           </button>
           <button type="button" className="btn btn--block" onClick={() => go('/deadlines')}>
             <Icon name="calendar" size={20} /> Добавить срок
@@ -224,7 +236,8 @@ const HELP_TEXTS: Record<string, string> = {
   '/': 'Главный экран: счётчики, ближайшие сроки и семейная лента — кто что добавил, купил или изменил.',
   '/shopping':
     'Общий список покупок семьи: добавили на своём телефоне — появилось у всех, отметили купленным — пропало у всех. Работает без интернета — список дождётся сети и синхронизируется сам.',
-  '/tasks': 'Дела — кто что обещал сделать, со сроком и статусом. Модуль в разработке.',
+  '/tasks':
+    'Общие дела семьи: что сделать, кто исполнит, необязательный срок и отметка выполнения. Можно исправить, удалить или вернуть в работу. Работает офлайн и синхронизируется. Повторения и push для дел ещё не подключены.',
   '/deadlines':
     'Сроки: документы, ТО, страховки, дни рождения — всё, у чего есть дата. Приложение напомнит заранее, а цвет рамки показывает срочность; правила цвета настраиваются в форме срока.',
   '/settings':
