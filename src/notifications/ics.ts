@@ -156,7 +156,7 @@ export function buildSingleDeadlineIcs(deadline: Deadline, opts: IcsBuildOptions
  * из настроек календаря. Наши ступени (за 30/7/0 дней) ведёт само приложение,
  * а файл .ics несёт их будильниками.
  */
-export function googleCalendarUrl(d: Deadline): string {
+export function googleCalendarUrl(d: Pick<Deadline, 'title' | 'dueDate'>): string {
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     text: `[Срок] ${d.title}`,
@@ -169,6 +169,50 @@ export function googleCalendarUrl(d: Deadline): string {
 
 /** Порядок открытия окна календаря после сохранения срока (см. DeadlinesScreen). */
 export const CALENDAR_OPEN_TARGET = '_blank';
+
+/** Пакет приложения Google Календаря на Android. */
+export const GOOGLE_CALENDAR_APP_PACKAGE = 'com.google.android.calendar';
+
+/**
+ * Клиент Android (Chrome и родственные). Только там имеет смысл intent-ссылка.
+ * Проверено по документации Chrome (developer.chrome.com/docs/android/intents, 2026-10-03):
+ *  - внешнее приложение запускается лишь схемой `intent:` и только из действия человека;
+ *  - запускаются лишь экраны, объявленные browsable;
+ *  - если приложение не отозвалось, Chrome сам открывает `browser_fallback_url`.
+ * Поэтому окно создания события в приложении календаря открыть с сайта нельзя, но
+ * попытка безопасна: при неудаче пользователь получает ту же веб-форму, что и раньше.
+ */
+export function isAndroidClient(userAgent?: string): boolean {
+  const ua = userAgent ?? (typeof navigator === 'undefined' ? '' : navigator.userAgent);
+  if (!/android/iu.test(ua)) return false;
+  // `intent:` понимают Chromium-браузеры (Chrome, Samsung Internet, Edge, Яндекс).
+  // Firefox и прочие на Android такую ссылку не обработают и покажут ошибку —
+  // им отдаём обычную веб-форму.
+  return /chrome\//iu.test(ua) || /samsungbrowser|yabrowser|edg\//iu.test(ua);
+}
+
+/** Intent-ссылка: сначала приложение Google Календаря, при неудаче — веб-форма. */
+export function googleCalendarAppIntentUrl(webUrl: string): string {
+  const data = webUrl.replace(/^https?:\/\//u, '');
+  const fallback = encodeURIComponent(webUrl);
+  return `intent://${data}#Intent;scheme=https;package=${GOOGLE_CALENDAR_APP_PACKAGE};S.browser_fallback_url=${fallback};end`;
+}
+
+export interface CalendarAddTarget {
+  url: string;
+  /** app — попытка открыть приложение календаря (Android), web — веб-форма. */
+  kind: 'app' | 'web';
+}
+
+export function calendarAddTarget(
+  d: Pick<Deadline, 'title' | 'dueDate'>,
+  userAgent?: string,
+): CalendarAddTarget {
+  const web = googleCalendarUrl(d);
+  return isAndroidClient(userAgent)
+    ? { url: googleCalendarAppIntentUrl(web), kind: 'app' }
+    : { url: web, kind: 'web' };
+}
 
 export interface IcsDownloadResult {
   eventCount: number;

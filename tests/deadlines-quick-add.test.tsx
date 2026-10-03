@@ -4,9 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/app/App';
 import { db, kvSet, KV_KEYS } from '../src/data/db';
 import { loadSession } from '../src/data/session';
-import { googleCalendarUrl } from '../src/notifications/ics';
+import { calendarAddTarget } from '../src/notifications/ics';
+
+const ANDROID_UA =
+  'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Mobile Safari/537.36';
+const DESKTOP_UA =
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36';
 
 beforeEach(async () => {
+  Object.defineProperty(window.navigator, 'userAgent', {
+    configurable: true,
+    get: () => ANDROID_UA,
+  });
   await Promise.all([
     db.kv.clear(),
     db.members.clear(),
@@ -119,20 +128,23 @@ describe('Сроки и календарь: галочка при сохране
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
     await waitFor(() => expect(openWindow).toHaveBeenCalledTimes(1));
-    const opened = openWindow.mock.results[0]?.value as {
-      location: { replace: ReturnType<typeof vi.fn> };
-    };
-    await waitFor(() => expect(opened.location.replace).toHaveBeenCalledTimes(1));
-    const created = new URL(String(opened.location.replace.mock.calls[0]?.[0]));
-    expect(created.origin + created.pathname).toBe('https://calendar.google.com/calendar/render');
+    // На Android сначала пробуем приложение календаря (Chrome откроет веб-форму,
+    // если приложение не отзовётся — путь указан в browser_fallback_url).
+    const openedUrl = String(openWindow.mock.calls[0]?.[0]);
+    expect(openedUrl.startsWith('intent://calendar.google.com/calendar/render?')).toBe(true);
+    const data = openedUrl.slice('intent://'.length).split('#Intent;')[0] ?? '';
+    const created = new URL(`https://${data}`);
     expect(created.searchParams.get('text')).toBe('[Срок] Учебный срок календаря');
     expect(created.searchParams.get('dates')).toBe('20270501T090000/20270501T091500');
     // Срок сохранён, а на экране — подсказка с запасным файлом.
     expect((await db.deadlines.toArray()).map((row) => row.title)).toEqual([
       'Учебный срок календаря',
     ]);
-    await screen.findByText(/Сохранено. Сохраните событие в календаре/u);
-    expect(screen.getByRole('button', { name: 'Скачать файл (.ics)' })).toBeTruthy();
+    const prompt = await screen.findByTestId('calendar-prompt');
+    expect(within(prompt).getByText(/Подтвердите событие в календаре/u)).toBeTruthy();
+    expect(
+      within(prompt).getByRole('button', { name: 'Файлом в календарь телефона' }),
+    ).toBeTruthy();
   });
 
   it('без галочки ничего не открывается и срока-события в календаре не будет', async () => {
@@ -169,6 +181,42 @@ describe('Сроки и календарь: галочка при сохране
     );
   });
 
+  it('на компьютере открывается обычная веб-форма, без intent', async () => {
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      get: () => DESKTOP_UA,
+    });
+    render(<App ready />);
+    await openDeadlineTab();
+    const form = await fillNewDeadline('Срок с компьютера', '2027-05-01');
+    const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
+    fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
+    await waitFor(() => expect(openWindow).toHaveBeenCalledTimes(1));
+    const url = new URL(String(openWindow.mock.calls[0]?.[0]));
+    expect(url.origin + url.pathname).toBe('https://calendar.google.com/calendar/render');
+    expect(url.searchParams.get('text')).toBe('[Срок] Срок с компьютера');
+  });
+
+  it('после сохранения окно показывает событие и оба способа добавления', async () => {
+    render(<App ready />);
+    await openDeadlineTab();
+    const form = await fillNewDeadline('Срок с выбором', '2027-08-01');
+    const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
+    fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
+
+    const prompt = await screen.findByTestId('calendar-prompt');
+    expect(within(prompt).getByText('[Срок] Срок с выбором')).toBeTruthy();
+    expect(within(prompt).getByText(/01\.08\.2027, 09:00–09:15/u)).toBeTruthy();
+    expect(
+      within(prompt).getByRole('button', { name: 'Файлом в календарь телефона' }),
+    ).toBeTruthy();
+    expect(within(prompt).getByRole('link', { name: 'Открыть Google Календарь' })).toBeTruthy();
+    // Честное предупреждение про аккаунт браузера на месте.
+    expect(
+      within(prompt).getByText(/если это другой аккаунт, на телефоне записи не будет/u),
+    ).toBeTruthy();
+  });
+
   it('проверочная ссылка календаря совпадает с тем, что открывает приложение', async () => {
     render(<App ready />);
     await openDeadlineTab();
@@ -176,12 +224,12 @@ describe('Сроки и календарь: галочка при сохране
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
     await waitFor(async () => expect((await db.deadlines.toArray()).length).toBe(1));
-    const opened = openWindow.mock.results[0]?.value as {
-      location: { replace: ReturnType<typeof vi.fn> };
-    };
     const sample = (await db.deadlines.toArray())[0]!;
     await waitFor(() =>
-      expect(opened.location.replace).toHaveBeenCalledWith(googleCalendarUrl(sample)),
+      expect(openWindow).toHaveBeenCalledWith(
+        calendarAddTarget({ title: sample.title, dueDate: sample.dueDate }, ANDROID_UA).url,
+        '_blank',
+      ),
     );
   });
 });

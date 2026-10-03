@@ -7,6 +7,7 @@ import { beforeEach, vi } from 'vitest';
 import {
   alarmTrigger,
   buildDeadlinesIcs,
+  calendarAddTarget,
   buildCalendarAlarmTest,
   buildSingleDeadlineIcs,
   calendarTestDeadline,
@@ -199,5 +200,53 @@ describe('календарь: одно событие и окно создани
     const date = await downloadSingleDeadlineIcs(dl({ id: 'a' }));
     expect(date).toBe('2026-11-15');
     expect(createObjectURL).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('календарь на Android: попытка приложения и веб-запасной путь (0.4.5)', () => {
+  const ANDROID =
+    'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Mobile Safari/537.36';
+  const IPHONE =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
+  it('на Android собирается intent-ссылка на приложение Google Календаря с веб-запасным путём', () => {
+    const target = calendarAddTarget(dl({ title: 'Страховка' }), ANDROID);
+    expect(target.kind).toBe('app');
+    expect(target.url.startsWith('intent://calendar.google.com/calendar/render?')).toBe(true);
+    expect(target.url).toContain('#Intent;scheme=https;');
+    expect(target.url).toContain('package=com.google.android.calendar;');
+    expect(target.url.endsWith(';end')).toBe(true);
+
+    // Запасной адрес — та же веб-форма, закодированная целиком (браузер откроет её,
+    // если приложение не отзовётся). Внутри не должно остаться сырых «;» и «#».
+    const fallback = target.url.match(/S\.browser_fallback_url=([^;]+);end$/u)?.[1] ?? '';
+    expect(fallback).not.toContain('#');
+    const web = new URL(decodeURIComponent(fallback));
+    expect(web.origin + web.pathname).toBe('https://calendar.google.com/calendar/render');
+    expect(web.searchParams.get('action')).toBe('TEMPLATE');
+    expect(web.searchParams.get('dates')).toBe('20261115T090000/20261115T091500');
+  });
+
+  it('Android-браузер без поддержки intent получает обычную веб-форму', () => {
+    const firefoxAndroid = 'Mozilla/5.0 (Android 10; Mobile; rv:130.0) Gecko/130.0 Firefox/130.0';
+    expect(calendarAddTarget(dl(), firefoxAndroid).kind).toBe('web');
+  });
+
+  it('на iPhone и компьютере остаётся обычная веб-ссылка', () => {
+    expect(calendarAddTarget(dl(), IPHONE)).toEqual({
+      url: googleCalendarUrl(dl()),
+      kind: 'web',
+    });
+    expect(calendarAddTarget(dl(), 'Mozilla/5.0 (X11; Linux x86_64) Chrome/154.0.0.0').kind).toBe(
+      'web',
+    );
+  });
+
+  it('событие с датой и временем берётся из формы, запись срока для ссылки не нужна', () => {
+    const target = calendarAddTarget({ title: 'Из формы', dueDate: '2027-03-09' }, ANDROID);
+    const data = target.url.slice('intent://'.length).split('#Intent;')[0] ?? '';
+    const parsed = new URL(`https://${data}`);
+    expect(parsed.searchParams.get('text')).toBe('[Срок] Из формы');
+    expect(parsed.searchParams.get('dates')).toBe('20270309T090000/20270309T091500');
   });
 });

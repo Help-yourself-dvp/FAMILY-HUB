@@ -14,6 +14,7 @@ import type { Deadline, DeadlineKind } from '../../domain/types';
 import { Banner, Field, Icon, Sheet, Skeleton } from '../../design/ui';
 import {
   CALENDAR_OPEN_TARGET,
+  calendarAddTarget,
   calendarExportSummary,
   downloadIcs,
   downloadSingleDeadlineIcs,
@@ -66,8 +67,12 @@ export default function DeadlinesScreen({
   const [calendarNotice, setCalendarNotice] = useState<{ tone: 'ok' | 'err'; text: string } | null>(
     null,
   );
-  // После сохранения с галочкой: если окно календаря не открылось, предложим файл.
-  const [calendarPrompt, setCalendarPrompt] = useState<Deadline | null>(null);
+  // После сохранения с галочкой: крупное окно с событием и выбором способа.
+  const [calendarPrompt, setCalendarPrompt] = useState<{
+    deadline: Deadline;
+    /** Удалось ли открыть окно календаря в момент нажатия. */
+    opened: boolean;
+  } | null>(null);
 
   const live = useMemo(() => {
     if (!rows) return null;
@@ -76,9 +81,9 @@ export default function DeadlinesScreen({
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   }, [rows]);
 
-  const handleSaved = (d: Deadline, addToCalendar: boolean) => {
+  const handleSaved = (d: Deadline, addToCalendar: boolean, opened: boolean) => {
     setCalendarNotice(null);
-    setCalendarPrompt(addToCalendar ? d : null);
+    setCalendarPrompt(addToCalendar ? { deadline: d, opened } : null);
   };
 
   const downloadOneForCalendar = (d: Deadline) => {
@@ -87,7 +92,7 @@ export default function DeadlinesScreen({
         setCalendarPrompt(null);
         setCalendarNotice({
           tone: 'ok',
-          text: `Скачан файл с одним событием: «${d.title}» (${formatRu(date)}), 09:00. Импортируйте его в календарь телефона.`,
+          text: `Скачан файл: «${d.title}» (${formatRu(date)}), 09:00. Откройте его в загрузках телефона — календарь покажет крупное окно события, нажмите «Сохранить». Событие попадёт в календарь телефона вместе с нашими напоминаниями.`,
         });
       })
       .catch(() =>
@@ -212,22 +217,46 @@ export default function DeadlinesScreen({
       </p>
       {calendarPrompt && (
         <Banner tone="warn">
-          <div className="grow">
-            <div className="strong">Сохранено. Сохраните событие в календаре</div>
+          <div className="stack" data-testid="calendar-prompt" style={{ gap: 'var(--sp-2)' }}>
+            <div className="strong" style={{ fontSize: 'var(--fs-md)' }}>
+              {calendarPrompt.opened
+                ? 'Сохранено. Подтвердите событие в календаре'
+                : 'Сохранено. Добавьте событие в календарь'}
+            </div>
+            <div className="strong" style={{ fontSize: 'var(--fs-md)' }}>
+              {`[Срок] ${calendarPrompt.deadline.title}`}
+            </div>
             <div className="small">
-              Открылось окно создания записи «{calendarPrompt.title}» на{' '}
-              {formatRu(calendarPrompt.dueDate)}, 09:00. Нажмите в нём «Сохранить». Если окно не
-              открылось или нужен будильник за несколько дней — скачайте файл: в нём одно это
-              событие и наши напоминания.
+              {`${formatRu(calendarPrompt.deadline.dueDate)}, 09:00–09:15 (Москва)`}
+            </div>
+            <div className="small">
+              {calendarPrompt.opened
+                ? 'Открывшееся окно не подтвердилось само: нажмите в нём «Сохранить».'
+                : 'Окно открыть не удалось (телефон заблокировал новое окно).'}
+            </div>
+            <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn--sm btn--primary"
+                onClick={() => downloadOneForCalendar(calendarPrompt.deadline)}
+              >
+                Файлом в календарь телефона
+              </button>
+              <a
+                className="btn btn--sm"
+                href={googleCalendarUrl(calendarPrompt.deadline)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Открыть Google Календарь
+              </a>
+            </div>
+            <div className="tiny muted">
+              Файл открывает календарь телефона: событие попадёт в тот же календарь, что вы видите
+              на телефоне, и с нашими напоминаниями. Веб-версия сохраняет событие в аккаунт, под
+              которым вы вошли в браузере: если это другой аккаунт, на телефоне записи не будет.
             </div>
           </div>
-          <button
-            type="button"
-            className="btn btn--sm"
-            onClick={() => downloadOneForCalendar(calendarPrompt)}
-          >
-            Скачать файл (.ics)
-          </button>
         </Banner>
       )}
       {calendarNotice && (
@@ -294,8 +323,8 @@ function DeadlineSheet({
 }: {
   onClose: () => void;
   editing?: Deadline | null;
-  /** Вызывается после сохранения: экран покажет подсказку про календарь. */
-  onSaved?: (d: Deadline, addToCalendar: boolean) => void;
+  /** Вызывается после сохранения: экран покажет окно с событием и способами. */
+  onSaved?: (d: Deadline, addToCalendar: boolean, opened: boolean) => void;
 }) {
   const [title, setTitle] = useState(editing?.title ?? '');
   const [kind, setKind] = useState<DeadlineKind>(editing?.deadlineKind ?? 'document');
@@ -337,9 +366,12 @@ function DeadlineSheet({
     }
     setBusy(true);
     setError(null);
-    // Окно календаря открываем синхронно, в самом нажатии: после await браузер уже
-    // не считает это действием человека и может заблокировать новое окно.
-    const calendarWindow = addToCalendar ? window.open('', CALENDAR_OPEN_TARGET) : null;
+    // Календарь открываем СИНХРОННО, до любых await: Chrome запускает внешнее
+    // приложение только из действия человека, а после ожидания жест «сгорает»
+    // (developer.chrome.com/docs/android/intents). Данные для ссылки — из формы,
+    // сохранение срока к ссылке не относится.
+    const target = addToCalendar ? calendarAddTarget({ title: raw, dueDate: due }) : null;
+    const calendarWindow = target ? window.open(target.url, CALENDAR_OPEN_TARGET) : null;
     try {
       await kvSet(KV_KEYS.notifyCalendarAddOnSave, addToCalendar);
       const patch = {
@@ -355,15 +387,7 @@ function DeadlineSheet({
         : await deadlinesRepo.add(patch);
       onClose();
       const deadline = saved ?? (editing ? { ...editing, ...patch } : null);
-      onSaved?.(deadline as Deadline, addToCalendar);
-      if (addToCalendar && deadline) {
-        const url = googleCalendarUrl(deadline);
-        // Если окно открыть не удалось, экран предложит файл .ics.
-        if (calendarWindow) calendarWindow.location.replace(url);
-        else window.open(url, CALENDAR_OPEN_TARGET);
-      } else {
-        calendarWindow?.close();
-      }
+      if (deadline) onSaved?.(deadline, addToCalendar, Boolean(calendarWindow));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Неизвестная ошибка');
     } finally {
