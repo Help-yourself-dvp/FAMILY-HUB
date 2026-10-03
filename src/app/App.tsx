@@ -39,6 +39,20 @@ export default function App({
 
 function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: string | null }) {
   const loc = useLocation();
+  const navigate = useNavigate();
+  const composeIntent = (loc.state as { compose?: boolean } | null)?.compose === true;
+
+  // Запрос «открыть форму создания» из круглого «+» — одноразовый. Он лежит в состоянии
+  // записи истории, а оно переживает перезагрузку страницы: свайп вниз на телефоне
+  // перезагружает приложение, и форма открывалась заново при каждом обновлении, пока
+  // пользователь не уходил в другой раздел. Гасим запрос сразу после того, как экран его
+  // прочитал (эффект выполняется после отрисовки, поэтому форма успевает открыться),
+  // и заодно заменяем запись истории, а не добавляем новую — «назад» работает как раньше.
+  useEffect(() => {
+    if (!composeIntent) return;
+    void navigate(`${loc.pathname}${loc.search}`, { replace: true });
+  }, [composeIntent, loc.pathname, loc.search, navigate]);
+
   return (
     <>
       <ErrorBoundary>
@@ -53,12 +67,7 @@ function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: strin
               element={
                 <ShoppingScreen
                   ready={ready}
-                  composeKey={
-                    loc.pathname === '/shopping' &&
-                    (loc.state as { compose?: boolean } | null)?.compose === true
-                      ? loc.key
-                      : null
-                  }
+                  composeKey={loc.pathname === '/shopping' && composeIntent ? loc.key : null}
                 />
               }
             />
@@ -67,12 +76,7 @@ function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: strin
               element={
                 <TasksScreen
                   ready={ready}
-                  composeKey={
-                    loc.pathname === '/tasks' &&
-                    (loc.state as { compose?: boolean } | null)?.compose === true
-                      ? loc.key
-                      : null
-                  }
+                  composeKey={loc.pathname === '/tasks' && composeIntent ? loc.key : null}
                 />
               }
             />
@@ -81,12 +85,7 @@ function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: strin
               element={
                 <DeadlinesScreen
                   ready={ready}
-                  composeKey={
-                    loc.pathname === '/deadlines' &&
-                    (loc.state as { compose?: boolean } | null)?.compose === true
-                      ? loc.key
-                      : null
-                  }
+                  composeKey={loc.pathname === '/deadlines' && composeIntent ? loc.key : null}
                 />
               }
             />
