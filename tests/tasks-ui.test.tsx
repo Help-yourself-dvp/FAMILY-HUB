@@ -70,6 +70,27 @@ async function addNamed(form: HTMLElement, name: string) {
 }
 
 describe('Дела: базовая приёмка', () => {
+  it('Главная показывает ближайшие открытые датированные дела, но не завершённые/без даты', async () => {
+    await tasksRepo.add({ title: 'Без даты' });
+    const completed = await tasksRepo.add({ title: 'Сделано с датой', dueDate: '2027-04-01' });
+    await tasksRepo.setDone(completed.id, true);
+    await tasksRepo.add({
+      title: 'Ближайшее поручение',
+      dueDate: '2027-03-01',
+      assigneeId: 'fixture-peer',
+    });
+    await tasksRepo.add({ title: 'Следующее поручение', dueDate: '2027-05-01' });
+    render(<App ready />);
+    const section = await screen.findByRole('region', { name: 'Ближайшие дела' });
+    await within(section).findByText('Ближайшее поручение');
+    expect(within(section).queryByText('Без даты')).toBeNull();
+    expect(within(section).queryByText('Сделано с датой')).toBeNull();
+    expect(section.textContent).toContain('Учебный исполнитель');
+    fireEvent.click(within(section).getByRole('link', { name: 'Все дела' }));
+    await screen.findByRole('button', { name: 'Добавить дело' });
+    expect(window.location.hash).toBe('#/tasks');
+  });
+
   it('из вкладки создаёт недатированное дело и показывает запись без сети', async () => {
     render(<App ready />);
     await openTasks();

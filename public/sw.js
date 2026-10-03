@@ -300,6 +300,49 @@ function daysUntilUtc(due, from) {
   return Math.round((b - a) / 86400000);
 }
 
+/**
+ * Одна чистая политика для приложения и Node sender. Без базы/сети/логов.
+ * Открытое назначенное дело: отдельное назначение другим и дата сегодня.
+ * Поля assignmentId/assignedBy optional: старые записи не дают ложную рассылку назначений.
+ */
+function taskNotificationEvents(task, recipientIds, today) {
+  if (
+    !task ||
+    task.deletedAt ||
+    task.status !== 'open' ||
+    !task.assigneeId ||
+    !recipientIds.includes(task.assigneeId)
+  )
+    return [];
+  const recipient = task.assigneeId;
+  const events = [];
+  if (
+    typeof task.assignmentId === 'string' &&
+    task.assignmentId &&
+    typeof task.assignedBy === 'string' &&
+    task.assignedBy &&
+    !recipientIds.includes(task.assignedBy)
+  ) {
+    events.push({
+      kind: 'assigned',
+      tag: `task.${task.id}.${recipient}.assigned.${task.assignmentId}.json`,
+      title: 'Family Hub: вам назначено дело',
+      body: `Вам назначено дело «${task.title}».`,
+      route: '#/tasks',
+    });
+  }
+  if (task.dueDate === today) {
+    events.push({
+      kind: 'due',
+      tag: `task.${task.id}.${recipient}.due.${task.dueDate}.json`,
+      title: 'Family Hub: дело на сегодня',
+      body: `Сегодня нужно выполнить «${task.title}».`,
+      route: '#/tasks',
+    });
+  }
+  return events;
+}
+
 async function checkRemindersOffline() {
   let db;
   try {
@@ -309,9 +352,12 @@ async function checkRemindersOffline() {
   }
   try {
     const deadlines = await idbGetAll(db, 'deadlines');
+    const tasks = await idbGetAll(db, 'tasks');
     const kvRows = await idbGetAll(db, 'kv');
     const marked = new Set();
     const deviceId = kvRows.find((row) => row.key === 'device.id')?.value;
+    const memberId = kvRows.find((row) => row.key === 'profile.memberId')?.value;
+    const recipientIds = [deviceId, memberId].filter((id) => typeof id === 'string' && id);
     for (const row of kvRows) {
       if (typeof row.key === 'string' && row.key.startsWith('remind.') && row.value === true)
         marked.add(row.key);
@@ -343,6 +389,31 @@ async function checkRemindersOffline() {
             body,
             tag: marker,
             data: { route: '#/deadlines', source: 'periodic-background' },
+          });
+        } catch (error) {
+          await recordNotificationDelivery('periodic-background', false);
+          throw error;
+        }
+        await idbPut(db, 'kv', { key: marker, value: true });
+        await recordNotificationDelivery('periodic-background', true);
+        marked.add(marker);
+      }
+    }
+    for (const task of tasks) {
+      for (const event of taskNotificationEvents(task, recipientIds, from)) {
+        const marker = 'remind.sw.' + event.tag;
+        if (
+          marked.has(marker) ||
+          marked.has('remind.task.' + event.tag) ||
+          marked.has('remind.push.' + event.tag)
+        )
+          continue;
+        try {
+          await self.registration.showNotification(event.title, {
+            ...notificationAppearance(),
+            body: event.body,
+            tag: event.tag,
+            data: { route: '#/tasks', source: 'periodic-background' },
           });
         } catch (error) {
           await recordNotificationDelivery('periodic-background', false);

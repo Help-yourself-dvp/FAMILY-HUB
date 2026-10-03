@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   alarmTrigger,
   buildDeadlinesIcs,
+  buildCalendarAlarmTest,
   calendarTestDeadline,
   escapeIcsText,
   foldIcsLine,
@@ -109,4 +110,17 @@ describe('совместимость ICS', () => {
     expect(example.title).toBe('Family Hub: проверка календаря');
     expect(buildDeadlinesIcs([example]).match(/BEGIN:VEVENT/gu)?.length).toBe(1);
   });
+});
+
+it('быстрая проверка native alarm: одна UTC-встреча, 1 минута до начала, без ожидания суток', () => {
+  const now = new Date('2026-10-03T20:59:30Z');
+  const result = buildCalendarAlarmTest(now);
+  expect(result.alarmAt.toISOString()).toBe('2026-10-03T21:05:00.000Z');
+  expect(result.eventAt.toISOString()).toBe('2026-10-03T21:06:00.000Z');
+  expect(result.content).toContain('DTSTART:20261003T210600Z');
+  expect(result.content).toContain('TRIGGER:-PT1M');
+  expect(result.content.match(/BEGIN:VEVENT/gu)?.length).toBe(1);
+  expect(result.eventAt.getTime() - result.alarmAt.getTime()).toBe(60000);
+  for (const line of result.content.split('\r\n'))
+    expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
 });

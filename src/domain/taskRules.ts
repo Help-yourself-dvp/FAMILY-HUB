@@ -26,3 +26,11 @@ export function compareOpenTasks(a: Task, b: Task): number {
   if (aDate && bDate && aDate !== bDate) return aDate.localeCompare(bDate);
   return b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id);
 }
+
+/** Главная: только открытые/неудалённые с корректной датой, без недатированных. */
+export function nearestDatedTasks(tasks: Task[], limit = 3): Task[] {
+  return tasks
+    .filter((task) => !task.deletedAt && task.status === 'open' && isDateOnly(task.dueDate))
+    .sort(compareOpenTasks)
+    .slice(0, limit);
+}

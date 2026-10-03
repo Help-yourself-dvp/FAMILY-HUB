@@ -407,6 +407,9 @@ export const tasksRepo = {
       status: 'open',
       doneAt: null,
       recurrence: { type: 'none' },
+      assignmentId: fields.assigneeId ? newId() : null,
+      assignedAt: fields.assigneeId ? s.updatedAt : null,
+      assignedBy: fields.assigneeId ? s.updatedBy : null,
     };
     await db.transaction('rw', db.tasks, db.activity, async () => {
       await db.tasks.put(item);
@@ -433,7 +436,15 @@ export const tasksRepo = {
       )
         return;
       const s = stamp();
-      await db.tasks.put({ ...current, ...fields, ...s, rev: current.rev + 1 });
+      const assignment =
+        fields.assigneeId !== current.assigneeId
+          ? {
+              assignmentId: fields.assigneeId ? newId() : null,
+              assignedAt: fields.assigneeId ? s.updatedAt : null,
+              assignedBy: fields.assigneeId ? s.updatedBy : null,
+            }
+          : {};
+      await db.tasks.put({ ...current, ...fields, ...assignment, ...s, rev: current.rev + 1 });
       await appendActivity('updated', fields.title, undefined, {
         kind: 'tasks',
         place: placeLabel('tasks'),

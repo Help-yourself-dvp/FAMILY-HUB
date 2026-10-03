@@ -207,3 +207,39 @@ export function downloadCalendarTestIcs(): DateOnly {
   downloadCalendarFile(buildDeadlinesIcs([example]), 'family-hub-calendar-test.ics');
   return example.dueDate;
 }
+
+/** Изолированная быстрая проверка native VALARM, UTC-инстанты без неоднозначности зоны. */
+export function buildCalendarAlarmTest(now = new Date()) {
+  // Округляем вверх до минуты; после импорта есть не меньше пяти минут ожидания.
+  const alarmAt = new Date(Math.ceil(now.getTime() / 60000) * 60000 + 5 * 60000);
+  const eventAt = new Date(alarmAt.getTime() + 60000);
+  const endAt = new Date(eventAt.getTime() + 10 * 60000);
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Family Hub//Alarm Test//RU',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:fh-alarm-test-${now.getTime()}@family-hub.local`,
+    `DTSTAMP:${dtstamp(now)}`,
+    `DTSTART:${dtstamp(eventAt)}`,
+    `DTEND:${dtstamp(endAt)}`,
+    'SUMMARY:Family Hub: проверка будильника',
+    'DESCRIPTION:Вымышленное событие. Не записывается в семейные сроки.',
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    'DESCRIPTION:Family Hub: проверка будильника',
+    'TRIGGER:-PT1M',
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ];
+  return { content: `${lines.map(foldIcsLine).join('\r\n')}\r\n`, alarmAt, eventAt };
+}
+
+export function downloadCalendarAlarmTest() {
+  const result = buildCalendarAlarmTest();
+  downloadCalendarFile(result.content, 'family-hub-alarm-test.ics');
+  return { alarmAt: result.alarmAt, eventAt: result.eventAt };
+}

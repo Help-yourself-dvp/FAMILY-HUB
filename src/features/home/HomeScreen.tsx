@@ -12,6 +12,7 @@ import { HORIZON_LABEL, type Horizon } from '../../domain/types';
 import { Banner, Icon, Skeleton, Stat } from '../../design/ui';
 import { useSyncState } from '../../app/hooks';
 import { PHASE_LABEL } from '../../data/sync/state';
+import { nearestDatedTasks, taskDateLabel } from '../../domain/taskRules';
 
 export default function HomeScreen({ ready }: { ready: boolean }) {
   const items = useLiveQuery(() => db.shopping.toArray(), [], undefined);
@@ -21,6 +22,8 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
     undefined,
   );
   const members = useLiveQuery(() => db.members.toArray(), [], undefined);
+  const tasks = useLiveQuery(() => db.tasks.toArray(), [], undefined);
+  const nearbyTasks = useMemo(() => nearestDatedTasks(tasks ?? []), [tasks]);
   const deadlines = useLiveQuery(
     () => db.deadlines.filter((d) => !d.deletedAt && d.visibility === 'family').toArray(),
     [],
@@ -142,6 +145,43 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         )}
       </section>
 
+      <section className="stack" aria-label="Ближайшие дела">
+        <div className="row row--between">
+          <h2 className="section-title">Ближайшие дела</h2>
+          <Link to="/tasks" className="btn btn--sm btn--ghost">
+            Все дела
+          </Link>
+        </div>
+        {nearbyTasks.length ? (
+          <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
+            {nearbyTasks.map((task) => (
+              <Link
+                key={task.id}
+                to="/tasks"
+                className="row"
+                style={{ color: 'inherit', textDecoration: 'none', gap: 'var(--sp-3)' }}
+              >
+                <div className="grow">
+                  <div className="small" style={{ overflowWrap: 'anywhere' }}>
+                    {task.title}
+                  </div>
+                  <div className="tiny muted">{taskDateLabel(task.dueDate)}</div>
+                  <div className="tiny muted">
+                    {task.assigneeId
+                      ? members?.find((member) => member.id === task.assigneeId)?.name ||
+                        'Участник недоступен'
+                      : 'Без исполнителя'}
+                  </div>
+                </div>
+                <Icon name="check" size={18} />
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="small muted">Открытых дел с датой пока нет.</div>
+        )}
+      </section>
+
       <section className="stack">
         <details className="acc">
           <summary className="acc-summary">
@@ -193,7 +233,7 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
           «Сроки» уже работают: документы, ТО, дни рождения — с напоминаниями.{' '}
           <Link to="/deadlines">Открыть сроки</Link>. «Дела» — общий список с исполнителем,
           необязательным сроком и отметкой выполнения. <Link to="/tasks">Открыть дела</Link>.
-          Повторения и уведомления для дел пока не подключены.
+          Повторения пока не подключены; уведомления предназначены только исполнителю.
         </div>
       </div>
     </div>

@@ -13,8 +13,10 @@ import {
   readDeliveryReceipt,
 } from '../src/notifications/deliveryState';
 import { runReminderCheck } from '../src/notifications/remindersWatch';
+import { taskNotificationEvents } from '../src/domain/taskNotificationRules.mjs';
+import { runTaskNotificationCheck } from '../src/notifications/tasksWatch';
 import { notificationAppearance } from '../src/notifications/appearance';
-import type { Deadline } from '../src/domain/types';
+import type { Deadline, Task } from '../src/domain/types';
 
 const SCOPE = 'https://fixture.example/FAMILY-HUB/';
 const DUE = '2026-10-02';
@@ -114,7 +116,7 @@ function deadline(): Deadline {
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-02T09:00:00Z'));
-  await Promise.all([db.kv.clear(), db.deadlines.clear(), db.members.clear()]);
+  await Promise.all([db.kv.clear(), db.deadlines.clear(), db.tasks.clear(), db.members.clear()]);
   const session = await loadSession();
   await kvSet(KV_KEYS.deviceId, session.deviceId);
   foregroundShow.mockReset().mockResolvedValue();
@@ -298,6 +300,43 @@ describe('источник уведомления и переход по наж�
 });
 
 describe('напоминания не теряются и не повторяют другой канал', () => {
+  it('PBS задач использует те же адресные события/теги, не broadcast; foreground не повторяет', async () => {
+    const self = await loadSession();
+    const current: Task = {
+      id: 'task-fixture',
+      kind: 'tasks',
+      rev: 1,
+      createdAt: '2026-10-02T09:00:00Z',
+      updatedAt: '2026-10-02T09:00:00Z',
+      updatedBy: 'fixture-other',
+      deletedAt: null,
+      title: 'Учебная задача',
+      note: null,
+      assigneeId: self.deviceId,
+      dueDate: null,
+      status: 'open',
+      doneAt: null,
+      recurrence: { type: 'none' },
+      assignmentId: 'assign-fixture',
+      assignedBy: 'fixture-other',
+    };
+    await db.tasks.bulkPut([
+      current,
+      { ...current, id: 'unassigned', assigneeId: null },
+      { ...current, id: 'peer-task', assigneeId: 'peer' },
+    ]);
+    const sw = worker();
+    await sw.fire('periodicsync', { tag: 'fh-reminders' });
+    expect(sw.show).toHaveBeenCalledOnce();
+    expect(sw.show.mock.calls[0]?.[1]).toMatchObject({
+      tag: taskNotificationEvents(current, [self.deviceId], DUE)[0]?.tag,
+      data: { route: '#/tasks' },
+    });
+    expect(await runTaskNotificationCheck()).toBe(0);
+    await sw.fire('periodicsync', { tag: 'fh-reminders' });
+    expect(sw.show).toHaveBeenCalledOnce();
+  });
+
   it('foreground не дублирует уже полученный Web Push при открытии', async () => {
     await db.deadlines.put(deadline());
     await worker().push();

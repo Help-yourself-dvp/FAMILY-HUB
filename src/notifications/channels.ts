@@ -314,7 +314,8 @@ class WebPushChannel implements NotificationChannel {
         }));
     log.emit({ type: 'push:step', step: 'subscribe-ok' });
 
-    const deviceId = (await loadSession()).deviceId;
+    const pushSession = await loadSession();
+    const deviceId = pushSession.deviceId;
     const client = new GitHubClient({ owner, repo, branch }, () => auth.getToken());
     const path = `data/push/${deviceId}.json`;
     const cur = await client.getFile(path);
@@ -324,6 +325,7 @@ class WebPushChannel implements NotificationChannel {
       JSON.stringify(
         {
           deviceId,
+          memberId: pushSession.memberEntityId || deviceId,
           subscribedAt: new Date().toISOString(),
           revoked: false,
           subscription: sub.toJSON(),

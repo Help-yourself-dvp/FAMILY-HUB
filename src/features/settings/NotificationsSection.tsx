@@ -19,7 +19,7 @@ import {
 } from '../../notifications/channels';
 import { Banner, Icon, Switch } from '../../design/ui';
 import { kvGet, kvSet, KV_KEYS } from '../../data/db';
-import { downloadCalendarTestIcs } from '../../notifications/ics';
+import { downloadCalendarAlarmTest, downloadCalendarTestIcs } from '../../notifications/ics';
 import { formatRu } from '../../domain/dateOnly';
 
 export default function NotificationsSection() {
@@ -113,6 +113,26 @@ export default function NotificationsSection() {
     }
   }, []);
 
+  const testCalendarAlarm = () => {
+    try {
+      const result = downloadCalendarAlarmTest();
+      const time = (date: Date) =>
+        date.toLocaleString('ru-RU', {
+          timeZone: 'Europe/Moscow',
+          day: '2-digit',
+          month: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      setNotice({
+        tone: 'ok',
+        text: `Проверочный файл: событие ${time(result.eventAt)}, будильник ${time(result.alarmAt)} (Москва), за 1 минуту до начала. Импортируйте сразу, проверьте поле Напоминание. Сверните приложение/заблокируйте телефон. Если уведомления нет, сравните с вручную созданным событием на близкое время; проверьте разрешения календаря, Не беспокоить и показ на экране блокировки. Файл не содержит семейных данных.`,
+      });
+    } catch {
+      setNotice({ tone: 'err', text: 'Не удалось скачать проверку будильника.' });
+    }
+  };
+
   const testCalendar = () => {
     try {
       const date = downloadCalendarTestIcs();
@@ -193,6 +213,7 @@ export default function NotificationsSection() {
                   busy={busyId === c.id}
                   onToggle={(v) => void toggle(c.id, v)}
                   onCalendarTest={testCalendar}
+                  onCalendarAlarmTest={testCalendarAlarm}
                 />
               ))}
             </div>
@@ -210,6 +231,7 @@ function ChannelCard({
   busy,
   onToggle,
   onCalendarTest,
+  onCalendarAlarmTest,
 }: {
   channel: NotificationChannel;
   support: SupportReport | undefined;
@@ -217,6 +239,7 @@ function ChannelCard({
   busy: boolean;
   onToggle: (v: boolean) => void;
   onCalendarTest: () => void;
+  onCalendarAlarmTest: () => void;
 }) {
   const unsupported = Boolean(support && !support.supported);
   const checking = enabled === undefined;
@@ -285,6 +308,9 @@ function ChannelCard({
           </p>
           <button type="button" className="btn btn--sm" onClick={onCalendarTest}>
             Проверочный календарь: 1 событие
+          </button>
+          <button type="button" className="btn btn--sm" onClick={onCalendarAlarmTest}>
+            Проверить будильник через 5 минут
           </button>
           <a
             className="small"

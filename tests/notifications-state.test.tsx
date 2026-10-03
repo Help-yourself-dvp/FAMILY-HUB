@@ -250,3 +250,12 @@ it('пустой экспорт не создаёт файл и не выдаё�
   expect(await kvGet(ICS_KEY)).toBeUndefined();
   expect(createObjectURL).not.toHaveBeenCalled();
 });
+
+it('быстрая проверка будильника не создаёт срок, не включает резерв семьи и объясняет точное время', async () => {
+  await openNotifications();
+  fireEvent.click(screen.getByRole('button', { name: 'Проверить будильник через 5 минут' }));
+  await screen.findByText(/Проверочный файл: событие/u);
+  expect(await kvGet(ICS_KEY)).toBeUndefined();
+  expect(await db.deadlines.count()).toBe(0);
+  expect(calendarClick).toHaveBeenCalledOnce();
+});

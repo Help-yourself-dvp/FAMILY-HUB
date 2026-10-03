@@ -28,6 +28,7 @@ import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { randomUUID } from 'node:crypto';
 import { sendPushTest } from './push-test.mjs';
+import { sendTaskPush } from './task-push.mjs';
 import { deadlineRows } from './push-sender-data.mjs';
 
 const API = 'https://api.github.com';
@@ -137,7 +138,13 @@ async function loadSubscriptions() {
       if (!f.name.endsWith('.json')) continue;
       const doc = await getJsonFile(`data/push/${f.name}`);
       if (doc && !doc.revoked && doc.subscription?.endpoint) {
-        subs.push({ path: `data/push/${f.name}`, sha: f.sha, sub: doc.subscription });
+        subs.push({
+          path: `data/push/${f.name}`,
+          sha: f.sha,
+          sub: doc.subscription,
+          deviceId: doc.deviceId || f.name.replace(/\.json$/u, ''),
+          memberId: doc.memberId || null,
+        });
       }
     }
   }
@@ -199,16 +206,10 @@ async function main() {
     return;
   }
 
-  const deadlines = deadlineRows(await getJsonFile('data/deadlines.json'));
-  if (!deadlines) {
-    annotation(
-      'warning',
-      'Отправка пропущена: файл сроков отсутствует или имеет неподдерживаемый формат.',
-    );
-    return;
-  }
-  if (deadlines.length === 0) {
-    annotation('notice', 'Файл сроков прочитан: 0 записей, напоминать нечего.');
+  const deadlines = deadlineRows(await getJsonFile('data/deadlines.json')) || [];
+  const tasks = deadlineRows(await getJsonFile('data/tasks.json')) || [];
+  if (deadlines.length === 0 && tasks.length === 0) {
+    annotation('notice', 'Нет записей сроков/дел, напоминать нечего.');
     return;
   }
   const from = todayMoscow();
@@ -269,6 +270,23 @@ async function main() {
       }
     }
   }
+  const taskResult = await sendTaskPush(tasks, subs, from, {
+    wasSent: (marker) => Promise.resolve(sentNames.has(marker)),
+    send: (sub, payload, options) => webpush.sendNotification(sub, payload, options),
+    markSent: async (marker) => {
+      await putJsonFile(
+        `data/push-sent/${marker}`,
+        { at: new Date().toISOString(), kind: 'tasks' },
+        'push: отправлено напоминание исполнителю дела',
+      );
+      sentNames.add(marker);
+    },
+  });
+  annotation(
+    taskResult.failed ? 'warning' : 'notice',
+    `Дела: принято ${taskResult.accepted}, пропущено по маркерам ${taskResult.skipped}, ошибок ${taskResult.failed}.`,
+  );
+
   annotation(
     failed > 0 ? 'warning' : 'notice',
     `Цикл завершён: отправлено ${sent}, пропущено по маркерам ${skipped}, подписок ${subs.length}, ошибок доставки ${failed}.`,

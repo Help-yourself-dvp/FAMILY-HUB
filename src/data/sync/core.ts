@@ -74,6 +74,7 @@ type TaskLike = {
   note?: string | null;
   dueDate?: string | null;
   assigneeId?: string | null;
+  assignmentId?: string | null;
 };
 
 /** Чистое правило вывода действия из «было/стало» (покрыто тестом). */
@@ -184,7 +185,8 @@ async function attemptSync<T extends Syncable>(
           ((prev as TaskLike).status !== (next as TaskLike).status ||
             (prev as TaskLike).note !== (next as TaskLike).note ||
             (prev as TaskLike).dueDate !== (next as TaskLike).dueDate ||
-            (prev as TaskLike).assigneeId !== (next as TaskLike).assigneeId)),
+            (prev as TaskLike).assigneeId !== (next as TaskLike).assigneeId ||
+            (prev as TaskLike).assignmentId !== (next as TaskLike).assignmentId)),
       category: (next as ShoppingLike).category ?? null,
     });
   }
