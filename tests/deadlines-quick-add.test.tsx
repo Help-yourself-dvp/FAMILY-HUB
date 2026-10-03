@@ -10,6 +10,8 @@ const ANDROID_UA =
   'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Mobile Safari/537.36';
 const DESKTOP_UA =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36';
+const IPHONE_UA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
 beforeEach(async () => {
   Object.defineProperty(window.navigator, 'userAgent', {
@@ -186,6 +188,32 @@ describe('Сроки и календарь: галочка при сохране
           .getAttribute('aria-checked'),
       ).toBe('false'),
     );
+  });
+
+  it('на iPhone ничего не открывается, а окно ведёт к файлу в Календарь iPhone', async () => {
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      get: () => IPHONE_UA,
+    });
+    render(<App ready />);
+    await openDeadlineTab();
+    const form = await fillNewDeadline('Срок для iPhone', '2027-08-01');
+    const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
+    fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
+
+    // Никакой новой вкладки: календарь Apple ссылкой не открывается, а веб-форма
+    // Google на iPhone обычно ни к чему — человека ведёт окно экрана.
+    await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
+    expect(openWindow).not.toHaveBeenCalled();
+
+    const prompt = await screen.findByTestId('calendar-prompt');
+    expect(
+      within(prompt).getByText(/На iPhone сайт не может открыть календарь Apple/u),
+    ).toBeTruthy();
+    expect(
+      within(prompt).getByRole('button', { name: 'Сохранить в Календарь iPhone' }),
+    ).toBeTruthy();
+    expect(within(prompt).getByRole('link', { name: /Открыть Google Календарь/u })).toBeTruthy();
   });
 
   it('на компьютере открывается обычная веб-форма, без intent', async () => {

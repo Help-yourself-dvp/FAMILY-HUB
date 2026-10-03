@@ -191,6 +191,21 @@ export function isAndroidClient(userAgent?: string): boolean {
   return /chrome\//iu.test(ua) || /samsungbrowser|yabrowser|edg\//iu.test(ua);
 }
 
+/**
+ * Клиент iPhone/iPad. Сайт НЕ может открыть окно создания в Календаре Apple: iOS
+ * принимает событие только файлом .ics или подпиской на поток. Поэтому на iPhone
+ * ничего не открываем автоматически — окно после сохранения ведёт к файлу
+ * (владелец подтвердил 03.10.2026: .ics из приложения добавляется в Календарь iPhone).
+ *
+ * iPadOS 13+ представляется как «Macintosh», поэтому кроме явных iphone/ipad/ipod
+ * проверяем признак «Mobile» в строке: у настоящего macOS его нет.
+ */
+export function isIosClient(userAgent?: string): boolean {
+  const ua = userAgent ?? (typeof navigator === 'undefined' ? '' : navigator.userAgent);
+  if (/iphone|ipad|ipod/iu.test(ua)) return true;
+  return /macintosh/iu.test(ua) && /mobile\//iu.test(ua);
+}
+
 /** Intent-ссылка: сначала приложение Google Календаря, при неудаче — веб-форма. */
 export function googleCalendarAppIntentUrl(webUrl: string): string {
   const data = webUrl.replace(/^https?:\/\//u, '');
@@ -200,8 +215,14 @@ export function googleCalendarAppIntentUrl(webUrl: string): string {
 
 export interface CalendarAddTarget {
   url: string;
-  /** app — попытка открыть приложение календаря (Android), web — веб-форма. */
-  kind: 'app' | 'web';
+  /**
+   * Что делать сразу после сохранения:
+   *  app  — открыть intent-ссылку (приложение Google Календаря на Android);
+   *  web  — открыть веб-форму Google Календаря;
+   *  none — ничего не открывать (iPhone/iPad: Google-формы там нет, а окно создания
+   *         календаря Apple сайт открыть не может — путь через файл в окне экрана).
+   */
+  kind: 'app' | 'web' | 'none';
 }
 
 export function calendarAddTarget(
@@ -209,9 +230,9 @@ export function calendarAddTarget(
   userAgent?: string,
 ): CalendarAddTarget {
   const web = googleCalendarUrl(d);
-  return isAndroidClient(userAgent)
-    ? { url: googleCalendarAppIntentUrl(web), kind: 'app' }
-    : { url: web, kind: 'web' };
+  if (isAndroidClient(userAgent)) return { url: googleCalendarAppIntentUrl(web), kind: 'app' };
+  if (isIosClient(userAgent)) return { url: web, kind: 'none' };
+  return { url: web, kind: 'web' };
 }
 
 export interface IcsDownloadResult {

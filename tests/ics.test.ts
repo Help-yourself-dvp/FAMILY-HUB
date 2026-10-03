@@ -6,16 +6,17 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { beforeEach, vi } from 'vitest';
 import {
   alarmTrigger,
-  buildDeadlinesIcs,
-  calendarAddTarget,
   buildCalendarAlarmTest,
+  buildDeadlinesIcs,
   buildSingleDeadlineIcs,
+  calendarAddTarget,
   calendarTestDeadline,
   downloadIcs,
   downloadSingleDeadlineIcs,
   escapeIcsText,
   foldIcsLine,
   googleCalendarUrl,
+  isIosClient,
 } from '../src/notifications/ics';
 import { db } from '../src/data/db';
 import type { Deadline } from '../src/domain/types';
@@ -232,14 +233,33 @@ describe('календарь на Android: попытка приложения �
     expect(calendarAddTarget(dl(), firefoxAndroid).kind).toBe('web');
   });
 
-  it('на iPhone и компьютере остаётся обычная веб-ссылка', () => {
-    expect(calendarAddTarget(dl(), IPHONE)).toEqual({
+  it('на компьютере остаётся обычная веб-форма', () => {
+    expect(calendarAddTarget(dl(), 'Mozilla/5.0 (X11; Linux x86_64) Chrome/154.0.0.0')).toEqual({
       url: googleCalendarUrl(dl()),
       kind: 'web',
     });
-    expect(calendarAddTarget(dl(), 'Mozilla/5.0 (X11; Linux x86_64) Chrome/154.0.0.0').kind).toBe(
-      'web',
-    );
+  });
+
+  it('на iPhone ничего не открываем автоматически: окно экрана ведёт к файлу', () => {
+    // iOS не принимает событие ссылкой: Календарь Apple открывается только файлом .ics
+    // или подпиской. Поэтому ссылка на Google остаётся в окне как второй способ.
+    expect(calendarAddTarget(dl(), IPHONE)).toEqual({ url: googleCalendarUrl(dl()), kind: 'none' });
+    expect(isIosClient(IPHONE)).toBe(true);
+  });
+
+  it('iPadOS 13+ (маскируется под Mac) тоже считается iPhone-путём', () => {
+    const ipadDesktopMode =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+    expect(isIosClient(ipadDesktopMode)).toBe(true);
+    expect(calendarAddTarget(dl(), ipadDesktopMode).kind).toBe('none');
+  });
+
+  it('настоящий macOS и Android не попадают в iPhone-путь', () => {
+    const mac =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+    expect(isIosClient(mac)).toBe(false);
+    expect(isIosClient(ANDROID)).toBe(false);
+    expect(calendarAddTarget(dl(), mac).kind).toBe('web');
   });
 
   it('событие с датой и временем берётся из формы, запись срока для ссылки не нужна', () => {

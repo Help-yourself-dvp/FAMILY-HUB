@@ -19,6 +19,7 @@ import {
   downloadIcs,
   downloadSingleDeadlineIcs,
   googleCalendarUrl,
+  isIosClient,
   type IcsDownloadResult,
 } from '../../notifications/ics';
 import {
@@ -56,6 +57,9 @@ export default function DeadlinesScreen({
 }) {
   const rows = useLiveQuery(() => db.deadlines.toArray(), [], undefined);
   const sync = useSyncState();
+  // На iPhone/iPad календарь Apple сайт открыть не может (только файлом .ics),
+  // а Google-формы там обычно нет — окно после сохранения ведёт к файлу.
+  const ios = isIosClient();
   const [editing, setEditing] = useState<Deadline | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [seenComposeKey, setSeenComposeKey] = useState<string | null>(null);
@@ -92,7 +96,9 @@ export default function DeadlinesScreen({
         setCalendarPrompt(null);
         setCalendarNotice({
           tone: 'ok',
-          text: `Скачан файл: «${d.title}» (${formatRu(date)}), 09:00. Откройте его в загрузках телефона — календарь покажет крупное окно события, нажмите «Сохранить». Событие попадёт в календарь телефона вместе с нашими напоминаниями.`,
+          text: ios
+            ? `Скачан файл: «${d.title}» (${formatRu(date)}), 09:00. Откройте «Файлы» → «Загрузки» и коснитесь файла — Календарь iPhone покажет событие, нажмите «Добавить».`
+            : `Скачан файл: «${d.title}» (${formatRu(date)}), 09:00. Откройте его в загрузках телефона — календарь покажет крупное окно события, нажмите «Сохранить». Событие попадёт в календарь телефона вместе с нашими напоминаниями.`,
         });
       })
       .catch(() =>
@@ -230,9 +236,11 @@ export default function DeadlinesScreen({
               {`${formatRu(calendarPrompt.deadline.dueDate)}, 09:00–09:15 (Москва)`}
             </div>
             <div className="small">
-              {calendarPrompt.opened
-                ? 'Открывшееся окно не подтвердилось само: нажмите в нём «Сохранить».'
-                : 'Окно открыть не удалось (телефон заблокировал новое окно).'}
+              {ios
+                ? 'На iPhone сайт не может открыть календарь Apple сам: сохраните событие файлом — Календарь покажет крупное окно и кнопку «Добавить».'
+                : calendarPrompt.opened
+                  ? 'Открывшееся окно не подтвердилось само: нажмите в нём «Сохранить».'
+                  : 'Окно открыть не удалось (телефон заблокировал новое окно).'}
             </div>
             <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
               <button
@@ -240,7 +248,7 @@ export default function DeadlinesScreen({
                 className="btn btn--sm btn--primary"
                 onClick={() => downloadOneForCalendar(calendarPrompt.deadline)}
               >
-                Файлом в календарь телефона
+                {ios ? 'Сохранить в Календарь iPhone' : 'Файлом в календарь телефона'}
               </button>
               <a
                 className="btn btn--sm"
@@ -252,9 +260,9 @@ export default function DeadlinesScreen({
               </a>
             </div>
             <div className="tiny muted">
-              Файл открывает календарь телефона: событие попадёт в тот же календарь, что вы видите
-              на телефоне, и с нашими напоминаниями. Веб-версия сохраняет событие в аккаунт, под
-              которым вы вошли в браузере: если это другой аккаунт, на телефоне записи не будет.
+              {ios
+                ? 'Файл открывает Календарь iPhone — тот, что у вас уже есть, с нашими напоминаниями. Google Календарь на iPhone сработает, только если вы вошли в аккаунт Google в браузере.'
+                : 'Файл открывает календарь телефона: событие попадёт в тот же календарь, что вы видите на телефоне, и с нашими напоминаниями. Веб-версия сохраняет событие в аккаунт, под которым вы вошли в браузере: если это другой аккаунт, на телефоне записи не будет.'}
             </div>
           </div>
         </Banner>
@@ -370,8 +378,11 @@ function DeadlineSheet({
     // приложение только из действия человека, а после ожидания жест «сгорает»
     // (developer.chrome.com/docs/android/intents). Данные для ссылки — из формы,
     // сохранение срока к ссылке не относится.
+    // На iPhone (kind = none) не открываем ничего: веб-форма Google там бесполезна,
+    // а окно создания в Календаре Apple недоступно сайту — человека ведёт окно экрана.
     const target = addToCalendar ? calendarAddTarget({ title: raw, dueDate: due }) : null;
-    const calendarWindow = target ? window.open(target.url, CALENDAR_OPEN_TARGET) : null;
+    const calendarWindow =
+      target && target.kind !== 'none' ? window.open(target.url, CALENDAR_OPEN_TARGET) : null;
     try {
       await kvSet(KV_KEYS.notifyCalendarAddOnSave, addToCalendar);
       const patch = {
