@@ -16,8 +16,9 @@ import {
   escapeIcsText,
   foldIcsLine,
   googleCalendarUrl,
+  downloadSingleDeadlineDraftIcs,
+  draftDeadlineForCalendar,
   isIosClient,
-  openSingleDeadlineIcsInPlace,
 } from '../src/notifications/ics';
 import { db } from '../src/data/db';
 import type { Deadline } from '../src/domain/types';
@@ -204,9 +205,9 @@ describe('календарь: одно событие и окно создани
     expect(createObjectURL).toHaveBeenCalledTimes(1);
   });
 
-  it('на iPhone событие открывается переходом в ТЕКУЩЕЙ вкладке (новая вкладка зависала)', () => {
-    // Владелец проверил 03.10.2026: в новой вкладке Safari показывал адрес и висел на
-    // загрузке вечно. Поэтому переход делаем в текущей вкладке и без атрибута download.
+  it('файл события отдаётся синхронно, в самом нажатии — путь, проверенный владельцем', () => {
+    // Именно так работает кнопка «Проверить будильник через 5 минут» из Настроек: нажатие →
+    // файл отдан сразу → Safari показывает системное окно «Добавить в календарь».
     const clicked: Array<{ href: string; download: string; target: string }> = [];
     const spy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
       this: HTMLAnchorElement,
@@ -217,29 +218,35 @@ describe('календарь: одно событие и окно создани
         target: this.target,
       });
     });
-    openSingleDeadlineIcsInPlace(dl({ id: 'a' }));
+    downloadSingleDeadlineDraftIcs({ title: 'Из формы', dueDate: '2027-05-01' }, [7, 0]);
     spy.mockRestore();
     expect(clicked).toHaveLength(1);
     expect(clicked[0]?.href).toBe('blob:test-calendar');
-    // Без download: это переход к календарю, а не скачивание в «Загрузки».
-    expect(clicked[0]?.download).toBe('');
-    // Без target: переход в ТЕКУЩЕЙ вкладке — в новой вкладке Safari висел на загрузке.
+    // Скачивание файлом (как кнопка будильника), без перехода в новую вкладку.
+    expect(clicked[0]?.download).toBe('family-hub-srok-2027-05-01.ics');
     expect(clicked[0]?.target).toBe('');
     expect(createObjectURL).toHaveBeenCalledTimes(1);
   });
 
-  it('файл для одного события несёт его дату, время и ступени напоминаний', async () => {
+  it('файл из формы несёт её дату, время и ступени напоминаний', async () => {
     const spy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    openSingleDeadlineIcsInPlace(dl({ id: 'a', remindersDays: [7, 0] }));
+    downloadSingleDeadlineDraftIcs({ title: 'Из формы', dueDate: '2027-05-01' }, [7, 0]);
     spy.mockRestore();
     const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
     expect(blob.type).toContain('text/calendar');
     const text = await blob.text();
-    expect(text).toContain('SUMMARY:[Срок] ТО автомобиля');
-    expect(text).toContain('DTSTART;TZID=Europe/Moscow:20261115T090000');
+    expect(text).toContain('SUMMARY:[Срок] Из формы');
+    expect(text).toContain('DTSTART;TZID=Europe/Moscow:20270501T090000');
     expect(text.match(/BEGIN:VALARM/gu)?.length).toBe(2);
     expect(text).toContain('TRIGGER:-P7D');
     expect(text).toContain('TRIGGER:PT0S');
+  });
+
+  it('черновик для файла собирается из полей формы (id не зависит от сохранения)', () => {
+    const draft = draftDeadlineForCalendar({ title: 'Из формы', dueDate: '2027-05-01' }, [0]);
+    expect(draft.title).toBe('Из формы');
+    expect(draft.dueDate).toBe('2027-05-01');
+    expect(draft.remindersDays).toEqual([0]);
   });
 });
 

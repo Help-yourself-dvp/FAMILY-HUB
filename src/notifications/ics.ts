@@ -138,6 +138,53 @@ export function buildDeadlinesIcs(deadlines: Deadline[], opts: IcsBuildOptions =
 }
 
 /** Файл ровно с одним сроком: для добавления по одному, без повторного импорта всех. */
+/**
+ * Черновик события из полей формы — до сохранения срока.
+ *
+ * Нужен для мгновенного скачивания прямо из нажатия «Добавить»: на iPhone Safari
+ * открывает системное окно «Добавить в календарь» только когда файл отдаётся в самом
+ * действии человека (проверено владельцем на кнопке «Проверить будильник через 5 минут»
+ * из Настроек: нажатие → сразу окно календаря → «Сохранить», 03.10.2026).
+ */
+export function draftDeadlineForCalendar(
+  d: Pick<Deadline, 'title' | 'dueDate'>,
+  remindersDays: number[] = [],
+): Deadline {
+  const at = new Date().toISOString();
+  return {
+    id: `family-hub-draft-${d.dueDate}`,
+    rev: 0,
+    kind: 'deadlines',
+    createdAt: at,
+    updatedAt: at,
+    updatedBy: 'local',
+    deletedAt: null,
+    title: d.title,
+    deadlineKind: 'document',
+    dueDate: d.dueDate,
+    remindersDays,
+    recurrence: { type: 'none' },
+    lastCompletedAt: null,
+    history: [],
+    visibility: 'family',
+    note: null,
+  };
+}
+
+/**
+ * Один срок — файлом, синхронно из действия человека. Это проверенный путь:
+ * на iPhone Safari сразу показывает системное окно календаря (владелец проверил на
+ * кнопке будильника из Настроек), на Android и компьютере файл скачивается в «Загрузки».
+ */
+export function downloadSingleDeadlineDraftIcs(
+  d: Pick<Deadline, 'title' | 'dueDate'>,
+  remindersDays: number[] = [],
+): DateOnly {
+  const draft = draftDeadlineForCalendar(d, remindersDays);
+  downloadCalendarFile(buildSingleDeadlineIcs(draft), `family-hub-srok-${d.dueDate}.ics`);
+  return draft.dueDate;
+}
+
 export function buildSingleDeadlineIcs(deadline: Deadline, opts: IcsBuildOptions = {}): string {
   return icsContainer('Family Hub — срок', eventLines(deadline, opts.now ?? new Date()));
 }
@@ -252,37 +299,6 @@ function createIcsBlobUrl(content: string): string {
   // navigator.share дают лишь предпросмотр без кнопки «Добавить»).
   const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
   return URL.createObjectURL(blob);
-}
-
-/**
- * Один срок — сразу в системное окно календаря (iPhone/iPad), переходом в ТЕКУЩЕЙ вкладке.
- *
- * Почему не новая вкладка: Safari на iPhone не умеет открывать blob-адреса в новой вкладке —
- * владелец проверил 03.10.2026: вкладка показывала адрес и висела на загрузке вечно.
- * Переход в текущей вкладке — способ, проверенный на живых iPhone (z9bl/gpk-calculator,
- * PR #114: blob: + переход даёт системное окно «Добавить в календарь»).
- *
- * Переход делается по нажатию человека (тап по кнопке) — браузеры не запускают переход
- * к файлу сами. Файл в «Файлы» не попадает: содержимое живёт в памяти браузера.
- */
-export function openSingleDeadlineIcsInPlace(d: Deadline): void {
-  if (typeof document === 'undefined') return;
-  const url = createIcsBlobUrl(buildSingleDeadlineIcs(d));
-  const revoke = URL.revokeObjectURL.bind(URL);
-  const anchor = document.createElement('a');
-  // Без target и без download: это переход, а не скачивание в «Загрузки».
-  anchor.href = url;
-  anchor.rel = 'noopener';
-  document.body.appendChild(anchor);
-  try {
-    anchor.click();
-  } finally {
-    anchor.remove();
-    setTimeout(() => revoke(url), 15_000);
-  }
-  void db.transaction('rw', db.kv, async () => {
-    await kvSet(KV_KEYS.notifyIcsDownloaded, true);
-  });
 }
 
 function downloadCalendarFile(content: string, filename: string): void {

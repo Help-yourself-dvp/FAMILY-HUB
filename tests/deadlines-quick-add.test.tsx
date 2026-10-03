@@ -146,11 +146,12 @@ describe('Сроки и календарь: галочка при сохране
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
-    // Ничего не открывается и не скачивается само: сначала вопрос, действие — по нажатию.
+    // Ничего не скачивается само: сначала видимое окно-вопрос, действие — по нажатию.
+    // (Раньше вопрос стоял баннером внизу страницы — владелец его просто не видел.)
     await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
     expect(openWindow).not.toHaveBeenCalled();
-    const prompt = await screen.findByTestId('calendar-prompt');
-    expect(within(prompt).getByText(/Добавить событие в календарь телефона/u)).toBeTruthy();
+    const prompt = await screen.findByRole('dialog', { name: 'Добавить событие в календарь?' });
+    expect(within(prompt).getByText(/Добавить событие/u)).toBeTruthy();
     expect(within(prompt).getByText('[Срок] Учебный срок календаря')).toBeTruthy();
     expect(within(prompt).getByText(/1 мая 2027|01\.05\.2027/u)).toBeTruthy();
     expect(within(prompt).getByRole('button', { name: 'Не нужно' })).toBeTruthy();
@@ -158,7 +159,9 @@ describe('Сроки и календарь: галочка при сохране
     // Кнопка на Android скачивает файл события (открыть файл за человека сайт не может).
     fireEvent.click(within(prompt).getByRole('button', { name: 'Скачать файл события' }));
     await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByTestId('calendar-prompt')).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Добавить событие в календарь?' })).toBeNull(),
+    );
     expect(screen.getByText(/Нажмите «Открыть» в плашке загрузки/u)).toBeTruthy();
     expect(openWindow).not.toHaveBeenCalled();
   });
@@ -201,33 +204,7 @@ describe('Сроки и календарь: галочка при сохране
     );
   });
 
-  it('на iPhone после сохранения окно показывает событие и ведёт к календарю', async () => {
-    Object.defineProperty(window.navigator, 'userAgent', {
-      configurable: true,
-      get: () => IPHONE_UA,
-    });
-    render(<App ready />);
-    await openDeadlineTab();
-    const form = await fillNewDeadline('Срок для iPhone', '2027-08-01');
-    const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
-    fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
-
-    // Само ничего не открывается: сначала видно, что именно добавится.
-    await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
-    expect(openWindow).not.toHaveBeenCalled();
-    expect(createObjectURL).not.toHaveBeenCalled();
-
-    const prompt = await screen.findByTestId('calendar-prompt');
-    expect(within(prompt).getByText(/Добавить событие в календарь телефона/u)).toBeTruthy();
-    expect(within(prompt).getByText('[Срок] Срок для iPhone')).toBeTruthy();
-    expect(within(prompt).getByText(/01\.08\.2027, 09:00–09:15/u)).toBeTruthy();
-    expect(within(prompt).getByRole('button', { name: 'Открыть окно календаря' })).toBeTruthy();
-    expect(within(prompt).getByRole('button', { name: 'Скачать файлом' })).toBeTruthy();
-    // Google-ссылки на iPhone нет.
-    expect(within(prompt).queryByRole('link', { name: /Google/u })).toBeNull();
-  });
-
-  it('на iPhone кнопка открывает системное окно переходом в текущей вкладке', async () => {
+  it('на iPhone файл события отдаётся сразу из нажатия «Добавить» (проверенный путь)', async () => {
     Object.defineProperty(window.navigator, 'userAgent', {
       configurable: true,
       get: () => IPHONE_UA,
@@ -247,24 +224,34 @@ describe('Сроки и календарь: галочка при сохране
     const form = await fillNewDeadline('Срок для iPhone', '2027-08-01');
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
-    const prompt = await screen.findByTestId('calendar-prompt');
-    fireEvent.click(within(prompt).getByRole('button', { name: 'Открыть окно календаря' }));
 
-    // Переход в текущей вкладке, без download: Safari иначе висел на загрузке.
+    // Файл отдан синхронно, в самом нажатии: iPhone показывает окно календаря сразу.
     expect(clicked).toHaveLength(1);
     expect(clicked[0]?.href).toBe('blob:test-calendar');
-    expect(clicked[0]?.download).toBe('');
+    expect(clicked[0]?.download).toBe('family-hub-srok-2027-08-01.ics');
     expect(clicked[0]?.target).toBe('');
-    // В файле — событие этого срока с тремя ступенями из формы.
+    clickSpy.mockRestore();
+
+    // В файле — событие из формы, с тремя ступенями.
     const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
     const text = await blob.text();
     expect(text).toContain('SUMMARY:[Срок] Срок для iPhone');
     expect(text).toContain('DTSTART;TZID=Europe/Moscow:20270801T090000');
     expect(text.match(/BEGIN:VALARM/gu)?.length).toBe(3);
-    clickSpy.mockRestore();
+
+    // Срок сохранён, и сверху видна подсказка с запасным путём (её точно видно).
+    await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
+    const note = await screen.findByTestId('calendar-ios-note');
+    expect(
+      within(note).getByText('[Срок] Срок для iPhone · 01.08.2027, 09:00 (Москва)'),
+    ).toBeTruthy();
+    expect(within(note).getByRole('button', { name: 'Скачать файлом' })).toBeTruthy();
+
+    // Модального окна-вопроса на iPhone нет: система уже спрашивает сама.
+    expect(screen.queryByRole('dialog', { name: 'Добавить событие в календарь?' })).toBeNull();
   });
 
-  it('на iPhone запасная кнопка скачивает файл (проверенный путь)', async () => {
+  it('на iPhone подсказка убирается кнопкой «Понятно», запасной путь скачивает файл', async () => {
     Object.defineProperty(window.navigator, 'userAgent', {
       configurable: true,
       get: () => IPHONE_UA,
@@ -274,14 +261,15 @@ describe('Сроки и календарь: галочка при сохране
     const form = await fillNewDeadline('Срок для iPhone', '2027-08-01');
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
-    const prompt = await screen.findByTestId('calendar-prompt');
-    fireEvent.click(within(prompt).getByRole('button', { name: 'Скачать файлом' }));
+    const note = await screen.findByTestId('calendar-ios-note');
+    createObjectURL.mockClear();
+    fireEvent.click(within(note).getByRole('button', { name: 'Скачать файлом' }));
     await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByTestId('calendar-prompt')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('calendar-ios-note')).toBeNull());
     expect(screen.getByText(/Файлы» → «Загрузки/u)).toBeTruthy();
   });
 
-  it('на iPhone без галочки ничего не открывается и не спрашивается', async () => {
+  it('на iPhone без галочки ничего не скачивается и не спрашивается', async () => {
     Object.defineProperty(window.navigator, 'userAgent', {
       configurable: true,
       get: () => IPHONE_UA,
@@ -296,7 +284,8 @@ describe('Сроки и календарь: галочка при сохране
     await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
     expect(openWindow).not.toHaveBeenCalled();
     expect(createObjectURL).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('calendar-prompt')).toBeNull();
+    expect(screen.queryByTestId('calendar-ios-note')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Добавить событие в календарь?' })).toBeNull();
   });
 
   it('на компьютере само ничего не открывается, а Google-ссылка ведёт на веб-форму', async () => {
@@ -328,8 +317,8 @@ describe('Сроки и календарь: галочка при сохране
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
-    const prompt = await screen.findByTestId('calendar-prompt');
-    expect(within(prompt).getByText(/Добавить событие в календарь телефона/u)).toBeTruthy();
+    const prompt = await screen.findByRole('dialog', { name: 'Добавить событие в календарь?' });
+    expect(within(prompt).getByText(/Добавить событие/u)).toBeTruthy();
     expect(within(prompt).getByText('[Срок] Срок с выбором')).toBeTruthy();
     expect(within(prompt).getByText(/01\.08\.2027, 09:00–09:15/u)).toBeTruthy();
     expect(within(prompt).getByRole('button', { name: 'Скачать файл события' })).toBeTruthy();
@@ -339,7 +328,7 @@ describe('Сроки и календарь: галочка при сохране
     expect(within(prompt).getByRole('button', { name: 'Не нужно' })).toBeTruthy();
   });
 
-  it('«Не нужно» закрывает окно-вопрос и ничего не открывает', async () => {
+  it('«Не нужно» закрывает окно-вопрос и ничего не скачивает', async () => {
     render(<App ready />);
     await openDeadlineTab();
     const form = await fillNewDeadline('Срок без календаря', '2027-09-01');
@@ -347,7 +336,9 @@ describe('Сроки и календарь: галочка при сохране
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
     const prompt = await screen.findByTestId('calendar-prompt');
     fireEvent.click(within(prompt).getByRole('button', { name: 'Не нужно' }));
-    await waitFor(() => expect(screen.queryByTestId('calendar-prompt')).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Добавить событие в календарь?' })).toBeNull(),
+    );
     expect(openWindow).not.toHaveBeenCalled();
     expect(createObjectURL).not.toHaveBeenCalled();
   });

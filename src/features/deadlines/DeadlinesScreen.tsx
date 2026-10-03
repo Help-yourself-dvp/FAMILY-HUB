@@ -18,8 +18,8 @@ import {
   downloadIcs,
   downloadSingleDeadlineIcs,
   isAndroidClient,
+  downloadSingleDeadlineDraftIcs,
   isIosClient,
-  openSingleDeadlineIcsInPlace,
   type IcsDownloadResult,
 } from '../../notifications/ics';
 import {
@@ -63,11 +63,10 @@ export default function DeadlinesScreen({
   const android = isAndroidClient();
   // Честная подпись: что именно произойдёт после нажатия. Скрыть системный шаг нельзя —
   // календарь всегда спрашивает подтверждение сам.
-  const calendarHelp = ios
-    ? 'Откроется системное окно Календаря Apple: выберите календарь и нажмите «Добавить». Если окно не появилось — нажмите «Скачать файлом» (файл откроете в «Загрузках»).'
-    : android
-      ? 'Файл скачается. Нажмите «Открыть» в плашке загрузки (или откройте «Загрузки») — календарь покажет окно события: выберите календарь и нажмите «Сохранить».'
-      : 'Файл скачается — откройте его, чтобы добавить событие в календарь.';
+  const calendarHelp = android
+    ? 'Файл скачается. Нажмите «Открыть» в плашке загрузки (или откройте «Загрузки») — календарь покажет окно события: выберите календарь и нажмите «Сохранить».'
+    : 'Файл скачается — откройте его, чтобы добавить событие в календарь.';
+
   const [editing, setEditing] = useState<Deadline | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [seenComposeKey, setSeenComposeKey] = useState<string | null>(null);
@@ -85,6 +84,14 @@ export default function DeadlinesScreen({
   // (браузеры разрешают запуск/скачивание только из действия человека — это не обойти).
   const [calendarPrompt, setCalendarPrompt] = useState<{ deadline: Deadline } | null>(null);
 
+  /**
+   * Видимая подсказка на iPhone после сохранения. На iPhone событие уже передано системе
+   * (файл отдан в самом нажатии «Добавить» — проверенный путь кнопки будильника из
+   * Настроек): Safari сразу показывает окно «Добавить в календарь». Подсказка нужна на
+   * случай, если окно не появилось, и как напоминание, чем закончить.
+   */
+  const iosNote = ios && calendarPrompt ? calendarPrompt.deadline : null;
+
   const live = useMemo(() => {
     if (!rows) return null;
     return rows
@@ -98,21 +105,10 @@ export default function DeadlinesScreen({
   };
 
   /**
-   * Кнопка окна-вопроса. На iPhone — системное окно календаря переходом в текущей вкладке
-   * (в новой вкладке Safari на iPhone blob-файл не открывает — проверено владельцем).
-   * На Android и компьютере — скачивание файла: открыть его за пользователя сайт не может.
+   * Кнопка окна-вопроса (Android и компьютер): скачиваем файл события. Открыть его за
+   * человека сайт не может — поэтому в подписи честно сказано, что нажать дальше.
    */
-  const addOneToCalendar = (d: Deadline) => {
-    if (ios) {
-      openSingleDeadlineIcsInPlace(d);
-      setCalendarNotice({
-        tone: 'ok',
-        text: 'Открылось системное окно Календаря: выберите календарь и нажмите «Добавить». Если окно не появилось — нажмите «Скачать файлом».',
-      });
-      return;
-    }
-    downloadOneForCalendar(d);
-  };
+  const addOneToCalendar = (d: Deadline) => downloadOneForCalendar(d);
 
   const downloadOneForCalendar = (d: Deadline) => {
     void downloadSingleDeadlineIcs(d)
@@ -150,6 +146,37 @@ export default function DeadlinesScreen({
       <div className="screen-subtitle">
         {live.length > 0 ? `${live.length} срок(ов) под наблюдением` : 'пока пусто'}
       </div>
+
+      {iosNote && (
+        <Banner tone="ok">
+          <div className="stack" data-testid="calendar-ios-note" style={{ gap: 'var(--sp-2)' }}>
+            <div className="strong">Событие передано в календарь телефона</div>
+            <div className="small">
+              {`[Срок] ${iosNote.title} · ${formatRu(iosNote.dueDate)}, 09:00 (Москва)`}
+            </div>
+            <div className="small">
+              Если появилось окно «Добавить в календарь» — выберите календарь и нажмите «Добавить».
+              Если окна не было — нажмите «Скачать файлом» и откройте файл в «Файлы» → «Загрузки».
+            </div>
+            <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => downloadOneForCalendar(iosNote)}
+              >
+                Скачать файлом
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost"
+                onClick={() => setCalendarPrompt(null)}
+              >
+                Понятно
+              </button>
+            </div>
+          </div>
+        </Banner>
+      )}
 
       {!sync.configured && (
         <Banner tone="warn">
@@ -245,62 +272,48 @@ export default function DeadlinesScreen({
         приложение спросит, добавить ли событие, и подготовит его одним нажатием. Файл нужен редко:
         в нём сразу все сроки, и телефон добавит их все.
       </p>
-      {calendarPrompt && (
-        <Banner tone="warn">
-          <div className="stack" data-testid="calendar-prompt" style={{ gap: 'var(--sp-2)' }}>
-            <div className="strong" style={{ fontSize: 'var(--fs-md)' }}>
-              Добавить событие в календарь телефона?
-            </div>
-            <div className="strong" style={{ fontSize: 'var(--fs-md)' }}>
-              {`[Срок] ${calendarPrompt.deadline.title}`}
-            </div>
-            <div className="small">
-              {`${formatRu(calendarPrompt.deadline.dueDate)}, 09:00–09:15 (Москва)`}
+      {!ios && calendarPrompt && (
+        <Sheet open title="Добавить событие в календарь?" onClose={() => setCalendarPrompt(null)}>
+          <div className="stack" data-testid="calendar-prompt" style={{ gap: 'var(--sp-3)' }}>
+            <div className="stack" style={{ gap: 4 }}>
+              <div className="strong" style={{ fontSize: 'var(--fs-md)' }}>
+                {`[Срок] ${calendarPrompt.deadline.title}`}
+              </div>
+              <div className="small">
+                {`${formatRu(calendarPrompt.deadline.dueDate)}, 09:00–09:15 (Москва)`}
+              </div>
             </div>
             <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                className="btn btn--sm btn--primary"
+                className="btn btn--primary"
                 onClick={() => addOneToCalendar(calendarPrompt.deadline)}
               >
-                {ios ? 'Открыть окно календаря' : 'Скачать файл события'}
+                Скачать файл события
               </button>
-              {ios && (
-                <button
-                  type="button"
-                  className="btn btn--sm"
-                  onClick={() => downloadOneForCalendar(calendarPrompt.deadline)}
-                >
-                  Скачать файлом
-                </button>
-              )}
-              {!ios && (
-                <a
-                  className="btn btn--sm"
-                  href={calendarAddTarget(calendarPrompt.deadline).url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Google Календарь
-                </a>
-              )}
+              <a
+                className="btn"
+                href={calendarAddTarget(calendarPrompt.deadline).url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Google Календарь
+              </a>
               <button
                 type="button"
-                className="btn btn--sm btn--ghost"
+                className="btn btn--ghost"
                 onClick={() => setCalendarPrompt(null)}
               >
                 Не нужно
               </button>
             </div>
             <div className="tiny muted">{calendarHelp}</div>
-            {!ios && (
-              <div className="tiny muted">
-                Файл занимает около 1 КБ и остаётся в «Загрузках» — при желании удалите его там;
-                через ленту (подписку) в будущем файлы не понадобятся вовсе.
-              </div>
-            )}
+            <div className="tiny muted">
+              Файл занимает около 1 КБ и остаётся в «Загрузках» — при желании удалите его там; через
+              ленту (подписку) в будущем файлы не понадобятся вовсе.
+            </div>
           </div>
-        </Banner>
+        </Sheet>
       )}
       {calendarNotice && (
         <Banner tone={calendarNotice.tone}>
@@ -409,8 +422,14 @@ function DeadlineSheet({
     }
     setBusy(true);
     setError(null);
-    // Сначала сохраняем срок, и только потом предлагаем добавить событие в календарь:
-    // переход к файлу уводит страницу, поэтому до него данные обязаны быть записаны.
+    // iPhone: файл события отдаём СИНХРОННО, в самом нажатии — тогда Safari сразу
+    // показывает системное окно «Добавить в календарь» (владелец проверил этот путь на
+    // кнопке будильника из Настроек: нажатие → окно календаря → «Сохранить»).
+    // Данные берём из формы, сохранение срока файл не задерживает.
+    if (addToCalendar && isIosClient()) {
+      downloadSingleDeadlineDraftIcs({ title: raw, dueDate: due }, steps);
+    }
+    // Срок сохраняем в любом случае: если человек закроет окно календаря, запись останется.
     try {
       await kvSet(KV_KEYS.notifyCalendarAddOnSave, addToCalendar);
       const patch = {
