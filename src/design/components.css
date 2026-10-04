@@ -136,8 +136,11 @@
 
 /* ---------- FAB ---------- */
 .fab {
-  position: fixed;
-  right: calc(var(--sp-4) + var(--sar));
+  /* Тот же приём, что у нижней панели: sticky вместо fixed (дефект Safari на iOS). */
+  position: sticky;
+  align-self: flex-end;
+  margin-right: calc(var(--sp-4) + var(--sar));
+  margin-top: auto;
   bottom: calc(var(--nav-h) + var(--sab) + var(--sp-4));
   width: 58px;
   height: 58px;
@@ -176,10 +179,16 @@
   color: var(--text-2);
 }
 .tabbar {
-  position: fixed;
-  left: 0;
-  right: 0;
+  /*
+   * position: sticky, а не fixed: в Safari на iOS (26.x, а также в PWA после долгой
+   * работы) элементы с position: fixed при прокрутке «уезжают» вверх и упираются в
+   * середину экрана (владелец, iPhone, 03.10.2026). Sticky даёт тот же вид, но не
+   * зависит от этого дефекта WebKit.
+   */
+  position: sticky;
   bottom: 0;
+  flex: 0 0 auto;
+  margin-top: auto;
   z-index: 30;
   padding: 6px calc(var(--sp-2) + var(--sar)) calc(6px + var(--sab)) calc(var(--sp-2) + var(--sal));
   background: var(--surface);

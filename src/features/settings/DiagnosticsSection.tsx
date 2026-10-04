@@ -1,6 +1,7 @@
 /** Настройки · DiagnosticsSection */
 import { useEffect, useState } from 'react';
-import { Icon } from '../../design/ui';
+import { Icon, Sheet } from '../../design/ui';
+import { copyText } from '../../shared/clipboard';
 import { useSyncState } from '../../app/hooks';
 import { notificationChannels, isStandalone, isIos } from '../../notifications/channels';
 import { readDisplayMode } from './helpers';
@@ -64,6 +65,8 @@ export default function DiagnosticsSection() {
   }, []);
 
   const [copied, setCopied] = useState<string>('');
+  // Текст отчёта для ручного копирования (когда буфер недоступен).
+  const [manualReport, setManualReport] = useState<string | null>(null);
 
   /**
    * Отчёт для разработчика (приёмка 0.1.5: владелец устал пересказывать симптомы).
@@ -122,26 +125,18 @@ export default function DiagnosticsSection() {
 
   const copyReport = async () => {
     const text = await buildReport();
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied('Скопировано — вставьте в чат разработчику.');
-    } catch {
-      // На некоторых Android clipboard доступен только через жест пользователя
-      // в фокусе: даём второй шанс через скрытое поле.
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      ta.remove();
-      setCopied(
-        ok
-          ? 'Скопировано — вставьте в чат разработчику.'
-          : 'Не удалось скопировать: снимите экран и пришлите фото.',
-      );
+    const outcome = await copyText(text);
+    if (outcome === 'manual') {
+      // Копирование недоступно (бывает в Safari на iPhone): показываем текст, чтобы его
+      // можно было выделить и скопировать вручную. Раньше здесь была только надпись
+      // «не удалось» — тупик, снимок экрана и потерянные подробности.
+      setManualReport(text);
+      setCopied('');
+      return;
     }
+    setCopied(
+      `Скопировано — вставьте в чат разработчику (${outcome === 'exec' ? 'запасной путь' : 'буфер'}).`,
+    );
     setTimeout(() => setCopied(''), 6000);
   };
 
@@ -197,6 +192,11 @@ export default function DiagnosticsSection() {
                 {copied}
               </div>
             )}
+            {manualReport && (
+              <div className="tiny" style={{ color: 'var(--warn)' }}>
+                Скопировать автоматически не получилось — отчёт открыт ниже, скопируйте его вручную.
+              </div>
+            )}
             <hr className="divider" />
             <div className="strong small">Факт уведомлений на этом устройстве</div>
             <div className="tiny muted">
@@ -232,6 +232,47 @@ export default function DiagnosticsSection() {
           </div>
         </div>
       </details>
+
+      {manualReport && (
+        <Sheet open title="Отчёт для разработчика" onClose={() => setManualReport(null)}>
+          <div className="stack">
+            <div className="small">
+              Нажмите на текст, затем «Выделить всё» → «Скопировать» и вставьте в чат разработчику.
+              В отчёте нет содержимого покупок, токенов и подписок.
+            </div>
+            <textarea
+              className="input"
+              style={{ minHeight: 260, fontFamily: 'var(--font-mono)', fontSize: 12 }}
+              readOnly
+              value={manualReport}
+              onFocus={(e) => e.currentTarget.select()}
+              aria-label="Отчёт для разработчика"
+            />
+            <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => {
+                  void copyText(manualReport).then((outcome) => {
+                    setCopied(
+                      outcome === 'manual' ? '' : 'Скопировано — вставьте в чат разработчику.',
+                    );
+                  });
+                }}
+              >
+                Попробовать скопировать
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setManualReport(null)}
+              >
+                Понятно
+              </button>
+            </div>
+          </div>
+        </Sheet>
+      )}
     </section>
   );
 }
