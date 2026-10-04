@@ -10,27 +10,16 @@
  * поймать в jsdom (там нет прокрутки и Safari), поэтому сторож статический.
  */
 // @vitest-environment node
-// Окружение — node (первая строка): CSS здесь читается с диска, а не через vite-импорт
-// (?raw для .css в этом проекте отдаёт пустую строку — CSS обрабатывает vite).
-// @ts-expect-error в tsconfig.app.json намеренно подключён только vite/client: node-типов
-// у тестов нет, и это единственный файл, которому нужен файловый доступ.
-import { readFileSync as readFileSyncRaw } from 'node:fs';
+// Окружение — node: CSS читается как текст (vite-импорт `?raw` для .css отдаёт пустую
+// строку — CSS обрабатывает сам vite). Чтение и разбор правил — в tests/helpers/css.ts.
 import { describe, expect, it } from 'vitest';
+import { readDesignCss, ruleBody } from './helpers/css';
 
-// Приводим вручную: без node-типов импорт разрешается как «неизвестный», а нужна строка.
-// Тип описан здесь ровно для одной операции — чтения CSS рядом с тестом.
-const readCss = readFileSyncRaw as unknown as (path: URL, encoding: 'utf8') => string;
+const css = readDesignCss('components.css');
 
-const css = readCss(new URL('../src/design/components.css', import.meta.url), 'utf8');
-
-/** Тело правила по селектору (до закрывающей скобки первого блока). */
+/** Тело правила по селектору (комментарии вырезаны помощником). */
 function rule(selector: string): string {
-  const index = css.indexOf(`\n${selector} {`);
-  expect(index, `правило ${selector} не найдено`).toBeGreaterThan(-1);
-  const end = css.indexOf('}', index);
-  // Комментарии выкидываем: в них объясняется причина правки и упоминается `fixed`,
-  // из-за чего наивная проверка «нет слова fixed» ловила бы сам комментарий.
-  return css.slice(index, end).replaceAll(/\/\*[\s\S]*?\*\//gu, '');
+  return ruleBody(css, selector);
 }
 
 describe('нижняя панель и кнопка «+» не уезжают при прокрутке', () => {

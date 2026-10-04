@@ -1,7 +1,7 @@
 {
   "name": "family-hub",
   "private": true,
-  "version": "0.5.3",
+  "version": "0.5.4",
   "type": "module",
   "description": "Приватное offline-first PWA для одной семьи: покупки, дела, сроки. Нулевая стоимость, без AI API, без сторонних сервисов в рантайме.",
   "scripts": {
