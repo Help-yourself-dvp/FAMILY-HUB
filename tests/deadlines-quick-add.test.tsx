@@ -152,7 +152,7 @@ describe('Сроки и календарь: галочка при сохране
     expect(openWindow).not.toHaveBeenCalled();
     const prompt = await screen.findByRole('dialog', { name: 'Добавить событие в календарь?' });
     expect(within(prompt).getByText(/Добавить событие/u)).toBeTruthy();
-    expect(within(prompt).getByText('[Срок] Учебный срок календаря')).toBeTruthy();
+    expect(within(prompt).getByText('Family Hub · Учебный срок календаря')).toBeTruthy();
     expect(within(prompt).getByText(/1 мая 2027|01\.05\.2027/u)).toBeTruthy();
     expect(within(prompt).getByRole('button', { name: 'Не нужно' })).toBeTruthy();
 
@@ -235,7 +235,7 @@ describe('Сроки и календарь: галочка при сохране
     // В файле — событие из формы, с тремя ступенями.
     const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
     const text = await blob.text();
-    expect(text).toContain('SUMMARY:[Срок] Срок для iPhone');
+    expect(text).toContain('SUMMARY:Family Hub · Срок для iPhone');
     expect(text).toContain('DTSTART;TZID=Europe/Moscow:20270801T090000');
     expect(text.match(/BEGIN:VALARM/gu)?.length).toBe(3);
 
@@ -243,7 +243,7 @@ describe('Сроки и календарь: галочка при сохране
     await waitFor(async () => expect(await db.deadlines.count()).toBe(1), { timeout: 5000 });
     const note = await screen.findByTestId('calendar-ios-note');
     expect(
-      within(note).getByText('[Срок] Срок для iPhone · 01.08.2027, 09:00 (Москва)'),
+      within(note).getByText('Family Hub · Срок для iPhone · 01.08.2027, 09:00 (Москва)'),
     ).toBeTruthy();
     expect(within(note).getByRole('button', { name: 'Скачать файлом' })).toBeTruthy();
 
@@ -306,7 +306,7 @@ describe('Сроки и календарь: галочка при сохране
       within(prompt).getByRole('link', { name: 'Google Календарь' }).getAttribute('href') ?? '',
     );
     expect(url.origin + url.pathname).toBe('https://calendar.google.com/calendar/render');
-    expect(url.searchParams.get('text')).toBe('[Срок] Срок с компьютера');
+    expect(url.searchParams.get('text')).toBe('Family Hub · Срок с компьютера');
     expect(within(prompt).getByRole('button', { name: 'Скачать файл события' })).toBeTruthy();
   });
 
@@ -319,7 +319,7 @@ describe('Сроки и календарь: галочка при сохране
 
     const prompt = await screen.findByRole('dialog', { name: 'Добавить событие в календарь?' });
     expect(within(prompt).getByText(/Добавить событие/u)).toBeTruthy();
-    expect(within(prompt).getByText('[Срок] Срок с выбором')).toBeTruthy();
+    expect(within(prompt).getByText('Family Hub · Срок с выбором')).toBeTruthy();
     expect(within(prompt).getByText(/01\.08\.2027, 09:00–09:15/u)).toBeTruthy();
     // Приоритет способа (владелец, 04.10.2026): основной путь — веб-версия Google,
     // она крупная и первая; файл .ics — запасной путь, намеренно меньше размером.
@@ -374,7 +374,7 @@ describe('Сроки и календарь: галочка при сохране
     await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
     const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
     const text = await blob.text();
-    expect(text).toContain('SUMMARY:[Срок] Сверка ссылки');
+    expect(text).toContain('SUMMARY:Family Hub · Сверка ссылки');
     expect(text).toContain('DTSTART;TZID=Europe/Moscow:20270501T090000');
   });
 });

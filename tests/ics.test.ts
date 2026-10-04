@@ -45,6 +45,21 @@ function dl(patch: Partial<Deadline> = {}): Deadline {
   };
 }
 
+describe('событие сразу узнаётся как созданное приложением (0.5.7)', () => {
+  it('в названии и описании есть Family Hub, будильник тоже подписан', () => {
+    const ics = buildSingleDeadlineIcs(dl({ title: 'Техосмотр' }));
+    expect(ics).toContain('SUMMARY:Family Hub · Техосмотр');
+    expect(ics).toContain('Создано в приложении Family Hub');
+    expect(ics).toContain('Family Hub · срок «Техосмотр»');
+  });
+
+  it('веб-форма Google заполняется тем же названием и пояснением', () => {
+    const url = new URL(googleCalendarUrl({ title: 'Техосмотр', dueDate: '2027-05-01' }));
+    expect(url.searchParams.get('text')).toBe('Family Hub · Техосмотр');
+    expect(url.searchParams.get('details')).toContain('Создано в приложении Family Hub');
+  });
+});
+
 describe('buildDeadlinesIcs', () => {
   it('обычное событие 09:00–09:15 (Москва), часовой пояс и каждая ступень', () => {
     const ics = buildDeadlinesIcs([dl()], { now: new Date('2026-10-02T10:00:00Z') });
@@ -53,7 +68,7 @@ describe('buildDeadlinesIcs', () => {
     expect(ics).toContain('DTEND;TZID=Europe/Moscow:20261115T091500');
     expect(ics).toContain('BEGIN:VTIMEZONE');
     expect(ics).toContain('TZOFFSETTO:+0300');
-    expect(ics).toContain('SUMMARY:[Срок] ТО автомобиля');
+    expect(ics).toContain('SUMMARY:Family Hub · ТО автомобиля');
     expect(ics.match(/BEGIN:VALARM/gu)?.length).toBe(3);
     expect(ics).toContain('TRIGGER:-P30D');
     expect(ics).toContain('TRIGGER:-P7D');
@@ -95,7 +110,7 @@ describe('совместимость ICS', () => {
     for (const line of ics.split('\r\n'))
       expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
     const unfolded = ics.replace(/\r\n[ \t]/gu, '');
-    expect(unfolded).toContain(`SUMMARY:[Срок] ${title}`);
+    expect(unfolded).toContain(`SUMMARY:Family Hub · ${title}`);
     expect(unfolded).not.toContain('�');
     expect(foldIcsLine('a'.repeat(76))).toBe(`${'a'.repeat(75)}\r\n a`);
   });
@@ -179,7 +194,7 @@ describe('календарь: одно событие и окно создани
     const url = new URL(googleCalendarUrl(dl({ title: 'Страховка, ТО' })));
     expect(url.origin + url.pathname).toBe('https://calendar.google.com/calendar/render');
     expect(url.searchParams.get('action')).toBe('TEMPLATE');
-    expect(url.searchParams.get('text')).toBe('[Срок] Страховка, ТО');
+    expect(url.searchParams.get('text')).toBe('Family Hub · Страховка, ТО');
     expect(url.searchParams.get('dates')).toBe('20261115T090000/20261115T091500');
     expect(url.searchParams.get('ctz')).toBe('Europe/Moscow');
   });
@@ -235,7 +250,7 @@ describe('календарь: одно событие и окно создани
     const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
     expect(blob.type).toContain('text/calendar');
     const text = await blob.text();
-    expect(text).toContain('SUMMARY:[Срок] Из формы');
+    expect(text).toContain('SUMMARY:Family Hub · Из формы');
     expect(text).toContain('DTSTART;TZID=Europe/Moscow:20270501T090000');
     expect(text.match(/BEGIN:VALARM/gu)?.length).toBe(2);
     expect(text).toContain('TRIGGER:-P7D');
@@ -312,7 +327,7 @@ describe('календарь на Android: попытка приложения �
     const target = calendarAddTarget({ title: 'Из формы', dueDate: '2027-03-09' }, ANDROID);
     const data = target.url.slice('intent://'.length).split('#Intent;')[0] ?? '';
     const parsed = new URL(`https://${data}`);
-    expect(parsed.searchParams.get('text')).toBe('[Срок] Из формы');
+    expect(parsed.searchParams.get('text')).toBe('Family Hub · Из формы');
     expect(parsed.searchParams.get('dates')).toBe('20270309T090000/20270309T091500');
   });
 });

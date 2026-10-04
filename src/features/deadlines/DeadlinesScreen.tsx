@@ -152,7 +152,7 @@ export default function DeadlinesScreen({
           <div className="stack" data-testid="calendar-ios-note" style={{ gap: 'var(--sp-2)' }}>
             <div className="strong">Событие передано в календарь телефона</div>
             <div className="small">
-              {`[Срок] ${iosNote.title} · ${formatRu(iosNote.dueDate)}, 09:00 (Москва)`}
+              {`Family Hub · ${iosNote.title} · ${formatRu(iosNote.dueDate)}, 09:00 (Москва)`}
             </div>
             <div className="small">
               Если появилось окно «Добавить в календарь» — выберите календарь и нажмите «Добавить».
@@ -195,9 +195,9 @@ export default function DeadlinesScreen({
           <div className="grow">
             <div className="strong">Добавьте первый срок</div>
             <div className="small">
-              Например: «Паспорт РФ — замена» с датой и напоминаниями за 30 и 7 дней. Приложение
-              напомнит само: в приложении — сразу, push для закрытого приложения появится на ЭТАПЕ
-              3.
+              Например: «Паспорт РФ — замена» с датой и напоминаниями за 30 и 7 дней. Напомним сами:
+              в приложении — сразу, а push для закрытого приложения включается в Настройках →
+              «Уведомления».
             </div>
           </div>
         </Banner>
@@ -277,7 +277,7 @@ export default function DeadlinesScreen({
           <div className="stack" data-testid="calendar-prompt" style={{ gap: 'var(--sp-3)' }}>
             <div className="stack" style={{ gap: 4 }}>
               <div className="strong" style={{ fontSize: 'var(--fs-md)' }}>
-                {`[Срок] ${calendarPrompt.deadline.title}`}
+                {`Family Hub · ${calendarPrompt.deadline.title}`}
               </div>
               <div className="small">
                 {`${formatRu(calendarPrompt.deadline.dueDate)}, 09:00–09:15 (Москва)`}
@@ -314,8 +314,7 @@ export default function DeadlinesScreen({
             </div>
             <div className="tiny muted">{calendarHelp}</div>
             <div className="tiny muted">
-              Файл занимает около 1 КБ и остаётся в «Загрузках» — при желании удалите его там; через
-              ленту (подписку) в будущем файлы не понадобятся вовсе.
+              Файл занимает около 1 КБ и остаётся в «Загрузках» — при желании удалите его там.
             </div>
           </div>
         </Sheet>

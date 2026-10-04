@@ -295,7 +295,7 @@ class WebPushChannel implements NotificationChannel {
   readonly id = 'web-push' as const;
   readonly label = 'Push при закрытом приложении';
   readonly description =
-    'Системные уведомления через GitHub Actions. Требует установки PWA на Home Screen и проверки на вашем устройстве (ЭТАП 3).';
+    'Системные уведомления приходят, даже когда приложение закрыто. На iPhone нужна установка приложения на экран «Домой».';
   readonly worksScreenOff = true;
   readonly needsExternalInfra = true;
   readonly level = 2 as const;
@@ -331,7 +331,7 @@ class WebPushChannel implements NotificationChannel {
   }
 
   /**
-   * ЭТАП 3: настоящая подписка Web Push.
+   * Подписка Web Push:
    * Публичный ключ VAPID берём из public/vapid.json приложения (ротация без
    * пересборки), подписку кладём в семейное хранилище data/push/<deviceId>.json —
    * её читает отправитель напоминаний (workflow в публичном репозитории).

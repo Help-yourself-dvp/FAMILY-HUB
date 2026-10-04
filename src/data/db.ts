@@ -98,8 +98,8 @@ export function tableFor<T extends Syncable>(kind: EntityKind): Table<T, string>
     case 'members':
       return db.members as unknown as Table<T, string>;
     case 'dictionary':
-      // ЭТАП 5. Таблица появится вместе со словарём; сейчас — безопасный отказ.
-      throw new Error('dictionary: хранилище появится на ЭТАПЕ 5');
+      // Таблицы словаря в модели данных нет: говорим об этом прямо, а не молчим.
+      throw new Error('dictionary: это хранилище приложением пока не используется');
     default: {
       const exhaustive: never = kind;
       throw new Error(`Неизвестный вид сущностей: ${String(exhaustive)}`);

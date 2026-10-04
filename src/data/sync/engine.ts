@@ -28,7 +28,7 @@ import { appendActivity, placeLabel } from '../repositories';
 import type { EntityKind, Syncable } from '../../domain/types';
 import { ENTITY_KINDS } from '../../domain/types';
 
-/** Какие виды сущностей синхронизируются на ЭТАПЕ 1 (сквозной скелет). */
+/** Какие виды сущностей синхронизируются в семейное хранилище. */
 export const ACTIVE_SYNC_KINDS: EntityKind[] = ['shopping', 'members', 'deadlines', 'tasks'];
 
 /** Задержка перед коммитом после локального изменения. */

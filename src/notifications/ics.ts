@@ -89,14 +89,16 @@ function eventLines(d: Deadline, now: Date): string[] {
     `SEQUENCE:${Number.isInteger(d.rev) && d.rev >= 0 ? d.rev : 0}`,
     'STATUS:CONFIRMED',
     'TRANSP:TRANSPARENT',
-    `SUMMARY:${escapeIcsText(`[Срок] ${d.title}`)}`,
-    `DESCRIPTION:${escapeIcsText(`Family Hub · дата срока ${formatRu(d.dueDate)}. Время напоминания — 09:00 (Москва).`)}`,
+    // Метка приложения впереди: в месячном виде календаря сразу видно, что событие
+    // создано Family Hub, а не добавлено вручную (просьба владельца 04.10.2026).
+    `SUMMARY:${escapeIcsText(`Family Hub · ${d.title}`)}`,
+    `DESCRIPTION:${escapeIcsText(`Создано в приложении Family Hub. Срок на ${formatRu(d.dueDate)}; напоминание — 09:00 (Москва).`)}`,
   ];
   for (const days of reminderSteps(d)) {
     lines.push(
       'BEGIN:VALARM',
       'ACTION:DISPLAY',
-      `DESCRIPTION:${escapeIcsText(`Срок: ${d.title}`)}`,
+      `DESCRIPTION:${escapeIcsText(`Family Hub · срок «${d.title}»`)}`,
       alarmTrigger(days),
       'END:VALARM',
     );
@@ -206,10 +208,10 @@ export function buildSingleDeadlineIcs(deadline: Deadline, opts: IcsBuildOptions
 export function googleCalendarUrl(d: Pick<Deadline, 'title' | 'dueDate'>): string {
   const params = new URLSearchParams({
     action: 'TEMPLATE',
-    text: `[Срок] ${d.title}`,
+    text: `Family Hub · ${d.title}`,
     dates: `${icsDate(d.dueDate)}T090000/${icsDate(d.dueDate)}T091500`,
     ctz: CALENDAR_TIMEZONE,
-    details: `Family Hub · дата срока ${formatRu(d.dueDate)}.`,
+    details: `Создано в приложении Family Hub. Срок на ${formatRu(d.dueDate)}.`,
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
@@ -396,11 +398,11 @@ export function buildCalendarAlarmTest(now = new Date()) {
     `DTSTAMP:${dtstamp(now)}`,
     `DTSTART:${dtstamp(eventAt)}`,
     `DTEND:${dtstamp(endAt)}`,
-    'SUMMARY:Family Hub: проверка будильника',
+    'SUMMARY:Family Hub · проверка будильника',
     'DESCRIPTION:Вымышленное событие. Не записывается в семейные сроки.',
     'BEGIN:VALARM',
     'ACTION:DISPLAY',
-    'DESCRIPTION:Family Hub: проверка будильника',
+    'DESCRIPTION:Family Hub · проверка будильника',
     'TRIGGER:-PT1M',
     'END:VALARM',
     'END:VEVENT',
