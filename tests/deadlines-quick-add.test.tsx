@@ -321,6 +321,15 @@ describe('Сроки и календарь: галочка при сохране
     expect(within(prompt).getByText(/Добавить событие/u)).toBeTruthy();
     expect(within(prompt).getByText('[Срок] Срок с выбором')).toBeTruthy();
     expect(within(prompt).getByText(/01\.08\.2027, 09:00–09:15/u)).toBeTruthy();
+    // Приоритет способа (владелец, 04.10.2026): основной путь — веб-версия Google,
+    // она крупная и первая; файл .ics — запасной путь, намеренно меньше размером.
+    const google = within(prompt).getByRole('link', { name: 'Google Календарь' });
+    expect(google.className).toContain('btn--primary');
+    expect(google.className).toContain('btn--block');
+    expect(prompt.querySelector('.btn--primary')).toBe(google);
+    const file = within(prompt).getByRole('button', { name: 'Скачать файл события' });
+    expect(file.className).toContain('btn--sm');
+    expect(file.className).not.toContain('btn--primary');
     expect(within(prompt).getByRole('button', { name: 'Скачать файл события' })).toBeTruthy();
     expect(within(prompt).getByRole('link', { name: 'Google Календарь' })).toBeTruthy();
     // Честные подписи: что произойдёт после нажатия и чем чревата веб-версия.

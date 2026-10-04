@@ -1,8 +1,8 @@
 {
-  "version": "0.5.4",
+  "version": "0.5.5",
   "schemaVersion": 0,
   "stage": 7,
-  "stageName": "iPhone: верх экрана без пустой полосы",
+  "stageName": "Android: основной путь — веб-версия Google; файл меньше и запасной",
   "updated": "2026-10-04",
   "note": "ЕДИНСТВЕННЫЙ канонический источник версии проекта. Все дубли (package.json, manifest.webmanifest, CI) обязаны совпадать с этим значением; рассинхрон падает в CI."
 }

@@ -283,16 +283,14 @@ export default function DeadlinesScreen({
                 {`${formatRu(calendarPrompt.deadline.dueDate)}, 09:00–09:15 (Москва)`}
               </div>
             </div>
-            <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={() => addOneToCalendar(calendarPrompt.deadline)}
-              >
-                Скачать файл события
-              </button>
+            {/*
+              Приоритет способа (владелец, 04.10.2026): основной путь — веб-версия
+              Google Календаря (крупная кнопка сверху). Файл .ics остаётся запасным
+              путём и намеренно меньше размером, чтобы не путать с основной кнопкой.
+            */}
+            <div className="stack" style={{ gap: 'var(--sp-2)' }}>
               <a
-                className="btn"
+                className="btn btn--primary btn--block"
                 href={calendarAddTarget(calendarPrompt.deadline).url}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -301,7 +299,14 @@ export default function DeadlinesScreen({
               </a>
               <button
                 type="button"
-                className="btn btn--ghost"
+                className="btn btn--sm btn--ghost btn--block"
+                onClick={() => addOneToCalendar(calendarPrompt.deadline)}
+              >
+                Скачать файл события
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost btn--block"
                 onClick={() => setCalendarPrompt(null)}
               >
                 Не нужно
