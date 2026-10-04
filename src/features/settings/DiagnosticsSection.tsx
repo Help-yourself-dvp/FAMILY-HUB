@@ -260,7 +260,7 @@ export default function DiagnosticsSection() {
                   });
                 }}
               >
-                Попробовать скопировать
+                Скопировать
               </button>
               <button
                 type="button"
