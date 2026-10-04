@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   describeStorageFailure,
   notificationChannels,
+  publishShoppingPreference,
   writeWithConflictRetry,
 } from '../src/notifications/channels';
 import { GitHubError } from '../src/data/remote/githubClient';
@@ -209,5 +210,99 @@ describe('включение push поверх конфликта', () => {
     expect(describeStorageFailure(new GitHubError(403, 'forbidden', 'forbidden'))).toMatch(
       /нет доступа к семейному хранилищу/u,
     );
+  });
+});
+
+describe('дайджест покупок: согласие устройства (0.5.6)', () => {
+  it('в теле подписки есть флаг согласия (по умолчанию выключен)', async () => {
+    const puts: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes('vapid.json')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ vapidPublicKey: VAPID }), { status: 200 }),
+          );
+        }
+        if (init?.method === 'PUT') {
+          const body = JSON.parse(typeof init.body === 'string' ? init.body : '') as {
+            content: string;
+          };
+          puts.push(fromBase64(body.content));
+          return Promise.resolve(
+            new Response(JSON.stringify({ content: { sha: 'new-sha' } }), { status: 200 }),
+          );
+        }
+        return Promise.resolve(okFile('sha-1'));
+      }),
+    );
+
+    await expect(pushChannel().enable()).resolves.toEqual({ enabled: true });
+    expect(JSON.parse(puts[0] ?? '{}')).toMatchObject({ notifyShopping: false });
+
+    // Включённый тумблер — согласие уходит вместе с подпиской.
+    await kvSet(KV_KEYS.notifyShoppingPush, true);
+    await expect(pushChannel().enable()).resolves.toEqual({ enabled: true });
+    expect(JSON.parse(puts[1] ?? '{}')).toMatchObject({ notifyShopping: true });
+  });
+
+  it('переключатель обновляет существующий файл подписки, не теряя саму подписку', async () => {
+    const deviceId = (await loadSession()).deviceId;
+    const doc = {
+      deviceId,
+      memberId: 'fixture-member',
+      revoked: false,
+      notifyShopping: false,
+      subscription: { endpoint: 'https://fixture.invalid/push' },
+    };
+    let putBody = '';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        const target = new URL(String(url));
+        if (!target.pathname.startsWith('/repos/')) throw new Error(`неожиданный запрос ${url}`);
+        if (init?.method === 'PUT') {
+          const body = JSON.parse(typeof init.body === 'string' ? init.body : '') as {
+            content: string;
+          };
+          putBody = fromBase64(body.content);
+          return Promise.resolve(
+            new Response(JSON.stringify({ content: { sha: 's2' } }), { status: 200 }),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              sha: 's1',
+              encoding: 'base64',
+              content: toBase64(JSON.stringify(doc)),
+            }),
+            { status: 200 },
+          ),
+        );
+      }),
+    );
+
+    await publishShoppingPreference(true);
+    expect(JSON.parse(putBody)).toMatchObject({
+      notifyShopping: true,
+      subscription: { endpoint: 'https://fixture.invalid/push' },
+    });
+  });
+
+  it('без подписки на устройстве файл не создаётся и ошибок нет', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        const target = new URL(String(url));
+        if (!target.pathname.startsWith('/repos/')) throw new Error(`неожиданный запрос ${url}`);
+        if (init?.method === 'PUT') throw new Error('PUT не должен вызываться без подписки');
+        return Promise.resolve(
+          new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 }),
+        );
+      }),
+    );
+
+    await expect(publishShoppingPreference(true)).resolves.toBeUndefined();
   });
 });

@@ -133,6 +133,8 @@ export const KV_KEYS = {
   /** Только безопасные метаданные экспорта: количество, формат, время. */
   notifyIcsExport: 'notify.calendar.export',
   notifyCalendarAddOnSave: 'notify.calendar.addOnSave',
+  /** Дайджест «изменения корзины»: настройка устройства, дублируется в файле подписки. */
+  notifyShoppingPush: 'notify.shoppingPush',
 } as const;
 
 export async function kvGet<T>(key: string): Promise<T | undefined> {

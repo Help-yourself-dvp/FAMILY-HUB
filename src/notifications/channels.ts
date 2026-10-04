@@ -411,6 +411,9 @@ class WebPushChannel implements NotificationChannel {
         memberId: pushSession.memberEntityId || deviceId,
         subscribedAt: new Date().toISOString(),
         revoked: false,
+        // Тумблер «Push об изменениях корзины» живёт на устройстве, а решение
+        // принимает отправитель — поэтому дублируем согласие в файл подписки (0.5.6).
+        notifyShopping: (await kvGet<boolean>(KV_KEYS.notifyShoppingPush)) === true,
         subscription: sub.toJSON(),
       },
       null,
@@ -499,6 +502,51 @@ class WebPushChannel implements NotificationChannel {
       },
     };
   }
+}
+
+/**
+ * Публикует согласие на дайджест покупок в семейное хранилище (0.5.6).
+ *
+ * Зачем: тумблер живёт в телефоне, а уведомление шлёт отправитель, который о телефоне
+ * ничего не знает. Флаг в файле подписки — единственный канал передачи решения.
+ * Если подписки нет или файл чужой/битый — тихо ничего не делаем: без подписки
+ * доставка невозможна, а чужие данные переписывать нельзя.
+ */
+export async function publishShoppingPreference(enabled: boolean): Promise<void> {
+  const owner = await kvGet<string>(KV_KEYS.remoteOwner);
+  const repo = await kvGet<string>(KV_KEYS.remoteRepo);
+  const branch = (await kvGet<string>(KV_KEYS.remoteBranch)) ?? 'main';
+  if (!owner || !repo) return;
+  const deviceId = (await loadSession()).deviceId;
+  const client = new GitHubClient({ owner, repo, branch }, () => auth.getToken());
+  const path = `data/push/${deviceId}.json`;
+  const cur = await client.getFile(path, null, true);
+  if (cur.status !== 'ok') return; // подписки нет — обновлять нечего
+  let doc: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(cur.file.content);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+    doc = parsed as Record<string, unknown>;
+  } catch {
+    return;
+  }
+  if (doc.revoked === true || !doc.subscription) return;
+  doc.notifyShopping = enabled;
+  doc.prefsAt = new Date().toISOString();
+  const payload = JSON.stringify(doc, null, 2);
+  await writeWithConflictRetry({
+    readSha: async () => {
+      const next = await client.getFile(path, null, true);
+      return next.status === 'ok' ? next.file.sha : null;
+    },
+    write: (sha) =>
+      client.putFile(
+        path,
+        payload,
+        sha,
+        `push: дайджест покупок ${enabled ? 'вкл' : 'выкл'} (${deviceId})`,
+      ),
+  });
 }
 
 /** URL-safe base64 (ключ VAPID) → ArrayBuffer для PushManager. */

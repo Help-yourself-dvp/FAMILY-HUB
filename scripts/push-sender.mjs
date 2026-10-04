@@ -29,7 +29,13 @@ import process from 'node:process';
 import { randomUUID } from 'node:crypto';
 import { sendPushTest } from './push-test.mjs';
 import { sendTaskPush } from './task-push.mjs';
-import { deadlineRows } from './push-sender-data.mjs';
+import { deadlineRows, entityRows } from './push-sender-data.mjs';
+import {
+  SHOPPING_DIGEST_MIN_INTERVAL_MS,
+  digestAllowed,
+  digestText,
+  shoppingChanges,
+} from './shopping-digest.mjs';
 
 const API = 'https://api.github.com';
 const OWNER = process.env.FH_DATA_OWNER || 'Help-yourself-dvp';
@@ -144,6 +150,8 @@ async function loadSubscriptions() {
           sub: doc.subscription,
           deviceId: doc.deviceId || f.name.replace(/\.json$/u, ''),
           memberId: doc.memberId || null,
+          // Согласие на дайджест покупок (0.5.6): старые файлы поля не имеют — молчим.
+          notifyShopping: doc.notifyShopping === true,
         });
       }
     }
@@ -208,8 +216,9 @@ async function main() {
 
   const deadlines = deadlineRows(await getJsonFile('data/deadlines.json')) || [];
   const tasks = deadlineRows(await getJsonFile('data/tasks.json')) || [];
-  if (deadlines.length === 0 && tasks.length === 0) {
-    annotation('notice', 'Нет записей сроков/дел, напоминать нечего.');
+  const shopping = entityRows(await getJsonFile('data/shopping.json')) || [];
+  if (deadlines.length === 0 && tasks.length === 0 && shopping.length === 0) {
+    annotation('notice', 'Нет записей сроков/дел/покупок, напоминать нечего.');
     return;
   }
   const from = todayMoscow();
@@ -286,6 +295,64 @@ async function main() {
     taskResult.failed ? 'warning' : 'notice',
     `Дела: принято ${taskResult.accepted}, пропущено по маркерам ${taskResult.skipped}, ошибок ${taskResult.failed}.`,
   );
+
+  // Дайджест покупок (0.5.6): только устройства с включённым тумблером, не чаще раза
+  // в 30 минут, свои изменения тому, кто их внёс, не возвращаются.
+  const digestRecipients = subs.filter((s) => s.notifyShopping === true);
+  if (shopping.length > 0 && digestRecipients.length > 0) {
+    const markerPath = 'data/push-sent/shopping-digest.json';
+    const marker = await getJsonFile(markerPath);
+    const lastSentAt = marker && typeof marker.at === 'string' ? marker.at : null;
+    if (!digestAllowed(Date.now(), lastSentAt)) {
+      annotation('notice', 'Дайджест покупок: пропуск — прошлый отправлен меньше 30 минут назад.');
+    } else {
+      // Первый дайджест не вываливает всю историю: окно — те же 30 минут.
+      const sinceIso =
+        lastSentAt ?? new Date(Date.now() - SHOPPING_DIGEST_MIN_INTERVAL_MS).toISOString();
+      let digestSent = 0;
+      let digestErrors = 0;
+      for (const s of digestRecipients) {
+        const changes = shoppingChanges(shopping, {
+          sinceIso,
+          excludeIds: [s.deviceId, s.memberId],
+        });
+        if (changes.length === 0) continue;
+        const payload = JSON.stringify({
+          title: 'Family Hub: покупки',
+          body: digestText(changes),
+          route: '#/shopping',
+          tag: 'shopping-digest',
+        });
+        try {
+          await webpush.sendNotification(s.sub, payload, { TTL: 6 * 3600, urgency: 'normal' });
+          digestSent += 1;
+        } catch (e) {
+          digestErrors += 1;
+          const status = e?.statusCode;
+          if (status === 404 || status === 410) {
+            log('мёртвая подписка, удаляю; HTTP', status);
+            await deleteFile(s.path, s.sha);
+          } else {
+            log(
+              'ошибка доставки дайджеста; HTTP',
+              typeof status === 'number' ? status : 'неизвестен',
+            );
+          }
+        }
+      }
+      if (digestSent > 0) {
+        await putJsonFile(
+          markerPath,
+          { at: new Date().toISOString(), kind: 'shopping', devices: digestSent },
+          'push: дайджест покупок отправлен',
+        );
+      }
+      annotation(
+        digestErrors > 0 ? 'warning' : 'notice',
+        `Покупки: подписок с дайджестом ${digestRecipients.length}, отправлено ${digestSent}, ошибок ${digestErrors}.`,
+      );
+    }
+  }
 
   annotation(
     failed > 0 ? 'warning' : 'notice',

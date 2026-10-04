@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   describeStorageFailure,
   notificationChannels,
+  publishShoppingPreference,
   type ChannelId,
   type NotificationChannel,
   type SupportReport,
@@ -35,7 +36,7 @@ export default function NotificationsSection() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
-    void kvGet<boolean>('notify.shoppingPush').then((v) => setShoppingPush(Boolean(v)));
+    void kvGet<boolean>(KV_KEYS.notifyShoppingPush).then((v) => setShoppingPush(Boolean(v)));
   }, []);
 
   useEffect(() => {
@@ -173,8 +174,9 @@ export default function NotificationsSection() {
             <p className="small" style={{ margin: 0, lineHeight: 1.55, color: 'var(--text-2)' }}>
               Решение семьи от 01.10.2026: выключено по умолчанию и считается мерой «на всякий
               случай». Даже во включённом состоянии изменения приходят дайджестом не чаще раза в 30
-              минут, а не на каждую позицию. Напоминания о сроках и ошибки, требующие действия,
-              живут отдельными уровнями ниже.
+              минут, а не на каждую позицию. Работает при включённом ниже «Push при закрытом
+              приложении»; свои изменения тому, кто их внёс, не возвращаются. Напоминания о сроках и
+              ошибки, требующие действия, живут отдельными уровнями ниже.
             </p>
             <div className="row--between row" style={{ gap: 'var(--sp-3)', paddingTop: 2 }}>
               <span className="small" style={{ color: 'var(--text-2)' }}>
@@ -185,7 +187,20 @@ export default function NotificationsSection() {
                 label="Push об изменениях корзины"
                 onChange={(v) => {
                   setShoppingPush(v);
-                  void kvSet('notify.shoppingPush', v);
+                  void kvSet(KV_KEYS.notifyShoppingPush, v);
+                  // Согласие дублируем в файл подписки: решение принимает отправитель.
+                  void publishShoppingPreference(v).catch(() => {
+                    setNotice({
+                      tone: 'warn',
+                      text: 'На этом телефоне настройка сохранена, но в семейное хранилище её записать не удалось — повторите переключатель, когда связь восстановится.',
+                    });
+                  });
+                  if (v && ready && enabled['web-push'] !== true) {
+                    setNotice({
+                      tone: 'warn',
+                      text: 'Чтобы дайджест доходил, включите ниже «Push при закрытом приложении» — без подписки доставка невозможна.',
+                    });
+                  }
                 }}
               />
             </div>
