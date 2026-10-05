@@ -155,8 +155,22 @@ describe('адрес ленты', () => {
 
 describe('отправитель действительно публикует ленту', () => {
   it('цикл отправки действительно вызывает публикацию ленты', () => {
-    // Сторож на проводку: мало иметь функции рядом — их нужно вызвать в конце цикла.
+    // Сторож на проводку: мало иметь функции рядом — их нужно вызвать.
     expect(senderSource).toContain('await publishFeeds({ deadlines, tasks, log });');
+    expect(senderSource).toContain('await publishFeedSafely(deadlines, tasks);');
+  });
+
+  it('лента публикуется до push-части: без VAPID и без подписок устройств', () => {
+    const feedCall = senderSource.indexOf('await publishFeedSafely(deadlines, tasks);');
+    const vapidCheck = senderSource.indexOf('if (!TOKEN || !VAPID_PRIVATE)');
+    const subsCheck = senderSource.indexOf('const subs = await loadSubscriptions();');
+    expect(feedCall).toBeGreaterThan(-1);
+    expect(vapidCheck).toBeGreaterThan(-1);
+    expect(subsCheck).toBeGreaterThan(-1);
+    // Раньше лента стояла в самом конце цикла и пропускалась, если у семьи нет
+    // push-подписок или ключей VAPID, — события зависали в календаре навсегда.
+    expect(feedCall).toBeLessThan(vapidCheck);
+    expect(feedCall).toBeLessThan(subsCheck);
   });
 
   it('читает настройки из data/feed.json и уважает выключенные разделы', () => {

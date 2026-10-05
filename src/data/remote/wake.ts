@@ -45,7 +45,7 @@ export function resetWakeThrottle(): void {
 
 async function loadWakeConfig(): Promise<WakeConfig | null> {
   try {
-    const res = await fetch(new URL('vapid.json', document.baseURI).href);
+    const res = await fetch(new URL('vapid.json', document.baseURI).href, { cache: 'no-store' });
     const cfg = (await res.json()) as { pushWake?: Partial<WakeConfig> };
     const w = cfg.pushWake;
     if (

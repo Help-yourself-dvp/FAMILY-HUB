@@ -56,7 +56,7 @@ export function emptyFeedState(): FeedState {
 /** Настройки публичного расположения ленты: лежат в vapid.json, меняются без пересборки. */
 export async function loadFeedConfig(): Promise<FeedConfig | null> {
   try {
-    const res = await fetch(new URL('vapid.json', document.baseURI).href);
+    const res = await fetch(new URL('vapid.json', document.baseURI).href, { cache: 'no-store' });
     const cfg = (await res.json()) as { feed?: Partial<FeedConfig> };
     const f = cfg.feed;
     if (!f || typeof f.owner !== 'string' || typeof f.repo !== 'string') return null;

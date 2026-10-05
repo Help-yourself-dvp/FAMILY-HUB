@@ -125,6 +125,27 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Настройки приложения (vapid.json) — ВСЕГДА сначала из сети, даже если копия уже
+  // лежит в кэше. Здесь адреса возможностей (лента, «будильник»); устаревшая копия
+  // заставляла бы приложение считать, что владелец их ещё не настроил, и показывать
+  // ошибку вместо ссылки. Кэш остаётся только запасным вариантом для офлайна.
+  if (url.pathname.endsWith('/vapid.json')) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(RUNTIME_CACHE);
+        const hit = await cache.match(req);
+        try {
+          const res = await fetch(req, { cache: 'no-store' });
+          if (res && res.status === 200) cache.put(req, res.clone()).catch(() => {});
+          return res;
+        } catch {
+          return hit || Response.error();
+        }
+      })(),
+    );
+    return;
+  }
+
   // Статика: stale-while-revalidate
   event.respondWith(
     (async () => {

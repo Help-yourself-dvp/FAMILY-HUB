@@ -176,6 +176,18 @@ async function deleteFeedFile({ slug, publicToken, publicRepo }) {
  * Полный цикл по ленте: собрать включённые разделы, опубликовать, убрать старые ссылки и
  * записать в семейное хранилище отметку о публикации (её показывает приложение).
  */
+/**
+ * Публикация ленты, которая никогда не роняет цикл: лента — отдельный канал, её сбой
+ * не должен мешать напоминаниям (и наоборот).
+ */
+async function publishFeedSafely(deadlines, tasks) {
+  try {
+    await publishFeeds({ deadlines, tasks, log });
+  } catch (e) {
+    annotation('warning', `Лента: цикл не завершён (${e?.message || 'сбой'}).`);
+  }
+}
+
 async function publishFeeds({ deadlines, tasks, log: emit }) {
   const settings = await loadFeedSettings();
   if (!settings) {
@@ -316,6 +328,22 @@ async function loadSubscriptions() {
 
 /* ------------------------------- основной цикл ---------------------------- */
 async function main() {
+  // Лента (подписка) — независимый канал: ей нужен только доступ к семейному хранилищу,
+  // ни ключи VAPID, ни подписки устройств не требуются. Поэтому публикуется первой и
+  // всегда, даже когда напоминать нечего: выключенный раздел должен уехать пустым
+  // календарём, иначе события останутся в подписке навсегда.
+  let deadlines = [];
+  let tasks = [];
+  if (TOKEN) {
+    try {
+      deadlines = deadlineRows(await getJsonFile('data/deadlines.json')) || [];
+      tasks = deadlineRows(await getJsonFile('data/tasks.json')) || [];
+      await publishFeedSafely(deadlines, tasks);
+    } catch (e) {
+      annotation('warning', `Лента: шаг не выполнен (${e?.message || 'сбой'}).`);
+    }
+  }
+
   if (!TOKEN || !VAPID_PRIVATE) {
     log(
       'не настроено: владелец должен добавить секреты FAMILY_REPO_TOKEN и VAPID_PRIVATE_KEY (Settings → Secrets and variables → Actions). Отправка невозможна.',
@@ -369,8 +397,6 @@ async function main() {
     return;
   }
 
-  const deadlines = deadlineRows(await getJsonFile('data/deadlines.json')) || [];
-  const tasks = deadlineRows(await getJsonFile('data/tasks.json')) || [];
   const shopping = entityRows(await getJsonFile('data/shopping.json')) || [];
   if (deadlines.length === 0 && tasks.length === 0 && shopping.length === 0) {
     annotation('notice', 'Нет записей сроков/дел/покупок, напоминать нечего.');
@@ -513,14 +539,6 @@ async function main() {
     failed > 0 ? 'warning' : 'notice',
     `Цикл завершён: отправлено ${sent}, пропущено по маркерам ${skipped}, подписок ${subs.length}, ошибок доставки ${failed}.`,
   );
-
-  // Лента (подписка): собирается всегда, когда её включила семья — независимо от того,
-  // есть ли подписки на push: это отдельный канал.
-  try {
-    await publishFeeds({ deadlines, tasks, log });
-  } catch (e) {
-    annotation('warning', `Лента: цикл не завершён (${e?.message || 'сбой'}).`);
-  }
 }
 
 main().catch((e) => {

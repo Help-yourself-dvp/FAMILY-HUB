@@ -377,7 +377,7 @@ class WebPushChannel implements NotificationChannel {
 
     let vapidPublicKey: string | undefined;
     try {
-      const res = await fetch(new URL('vapid.json', document.baseURI).href);
+      const res = await fetch(new URL('vapid.json', document.baseURI).href, { cache: 'no-store' });
       const cfg = (await res.json()) as { vapidPublicKey?: string };
       vapidPublicKey = cfg.vapidPublicKey;
     } catch {
