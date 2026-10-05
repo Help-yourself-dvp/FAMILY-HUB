@@ -424,6 +424,8 @@ describe('лента в Настройках', () => {
       expect(screen.getByTestId('feed-check-deadlines').textContent).toContain('В файле сейчас'),
     );
     const check = screen.getByTestId('feed-check-deadlines');
+    // Метка «Проверяю файл…» — только пока чтение идёт; в покое она не висит (0.6.8).
+    expect(screen.queryByText('Проверяю файл…')).toBeNull();
     const button = screen.getByRole('button', { name: 'Перечитать файл' });
     // Владелец 05.10.2026: жал на кнопку и искал ответ рядом с ней, а не выше ссылки.
     expect(button.compareDocumentPosition(check) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

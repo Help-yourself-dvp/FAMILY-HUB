@@ -403,13 +403,10 @@ export default function FeedSubscriptionSection() {
           {state && anyEnabled && state.publishedAt !== null && (
             <div className="stack" style={{ gap: 'var(--sp-2)' }}>
               {(['deadlines', 'tasks'] as const).map((section) =>
-                state.sections[section] ? (
+                state.sections[section] && checks[section] ? (
                   <div key={section} className="stack" style={{ gap: 2 }}>
                     <span className="tiny strong">{SECTION_INFO[section].title}:</span>
-                    <FeedCheckLine
-                      result={checks[section] ?? { kind: 'checking' }}
-                      section={section}
-                    />
+                    <FeedCheckLine result={checks[section]} section={section} />
                   </div>
                 ) : null,
               )}
