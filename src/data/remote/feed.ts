@@ -138,13 +138,51 @@ export function parseFeedIds(ics: string): Set<string> {
  * идентификаторы событий. null — прочитать не удалось: это не ошибка приложения, поэтому
  * вызывающий просто ничего не показывает.
  */
-export async function fetchFeedIds(cfg: FeedConfig, slug: string): Promise<Set<string> | null> {
+export type FeedFileResult =
+  /** Файл прочитан. */
+  | { kind: 'ok'; ids: Set<string> }
+  /** Файла по этой ссылке ещё нет (404): публикация не проходила или ссылку сменили. */
+  | { kind: 'not-published' }
+  /** Прочитать не удалось: сеть/провайдер или GitHub недоступен. */
+  | { kind: 'unreachable' };
+
+/** Запасной путь чтения: через API GitHub (открыт для публичных файлов, CORS разрешён). */
+async function fetchFeedViaApi(cfg: FeedConfig, slug: string): Promise<FeedFileResult> {
+  try {
+    const token = await auth.getToken();
+    const res = await fetch(
+      `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/feed/${slug}.ics?ref=${cfg.branch}`,
+      {
+        headers: {
+          Accept: 'application/vnd.github.raw',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        cache: 'no-store',
+      },
+    );
+    if (res.status === 404) return { kind: 'not-published' };
+    if (!res.ok) return { kind: 'unreachable' };
+    return { kind: 'ok', ids: parseFeedIds(await res.text()) };
+  } catch {
+    return { kind: 'unreachable' };
+  }
+}
+
+/**
+ * Читает опубликованный файл ленты по ссылке подписки. Первый путь — сам адрес подписки
+ * (raw.githubusercontent.com). Если он не открылся (так бывает у российских провайдеров,
+ * этот домен иногда блокируют), повторяем через api.github.com: он у приложения и так
+ * рабочий, потому что через него идёт синхронизация. На саму подписку это не влияет —
+ * Google скачивает ленту со своей стороны, — но проверка в приложении должна работать.
+ */
+export async function fetchFeedIds(cfg: FeedConfig, slug: string): Promise<FeedFileResult> {
   try {
     const res = await fetch(feedUrl(cfg, slug), { cache: 'no-store' });
-    if (!res.ok) return null;
-    return parseFeedIds(await res.text());
+    if (res.status === 404) return { kind: 'not-published' };
+    if (res.ok) return { kind: 'ok', ids: parseFeedIds(await res.text()) };
+    return await fetchFeedViaApi(cfg, slug);
   } catch {
-    return null;
+    return await fetchFeedViaApi(cfg, slug);
   }
 }
 

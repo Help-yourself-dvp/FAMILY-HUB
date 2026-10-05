@@ -44,11 +44,50 @@ const SECTION_INFO: Record<FeedSection, { title: string; hint: string }> = {
   },
 };
 
+/** Результат чтения файла: прочитан, ещё не создан или прочитать не удалось. */
+type FeedCheckResult =
+  { kind: 'ok'; check: FeedCheck } | { kind: 'not-published' } | { kind: 'unreachable' };
+
 /**
  * Итог сверки под ссылкой: сколько событий в файле и что не попало. Показываем не больше
  * трёх названий — остальное владельцу не нужно, а длинный список ломает компактность.
+ * Если файл не прочитался, честно объясняем, что это значит для подписки (ничего плохого:
+ * календарь скачивает ленту со своей стороны) и как проверить вручную.
  */
-function FeedCheckLine({ check, section }: { check: FeedCheck; section: FeedSection }) {
+function FeedCheckLine({ result, section }: { result: FeedCheckResult; section: FeedSection }) {
+  if (result.kind === 'not-published') {
+    return (
+      <div className="stack tiny muted" style={{ gap: 4 }} data-testid={`feed-check-${section}`}>
+        <span>
+          Файла по этой ссылке пока нет — публикация ещё не проходила. Нажмите «Обновить ленту
+          сейчас», и он появится через 1–2 минуты.
+        </span>
+        <span>
+          Если вы недавно меняли ссылку кнопкой «Сменить ссылку», в календаре нужно заменить адрес
+          на новый: прежние файлы отправитель удаляет.
+        </span>
+      </div>
+    );
+  }
+  if (result.kind === 'unreachable') {
+    return (
+      <div className="stack tiny muted" style={{ gap: 4 }} data-testid={`feed-check-${section}`}>
+        <span>
+          С телефона файл прочитать не удалось (обычно так делает провайдер — адрес
+          raw.githubusercontent.com бывает закрыт). На подписку это не влияет: календарь скачивает
+          ленту со своей стороны.
+        </span>
+        <span>
+          Проверить вручную: откройте ссылку выше в браузере телефона — должен открыться текст,
+          начинающийся с BEGIN:VCALENDAR.
+        </span>
+      </div>
+    );
+  }
+  return <FeedCheckBody check={result.check} section={section} />;
+}
+
+function FeedCheckBody({ check, section }: { check: FeedCheck; section: FeedSection }) {
   const [expanded, setExpanded] = useState(false);
   const notable = useMemo(
     () =>
@@ -100,7 +139,7 @@ export default function FeedSubscriptionSection() {
   // Сверка с опубликованным файлом: сколько событий реально лежит по ссылке и что из
   // семейных записей туда не попало. Нужна, чтобы владелец не гадал, кто виноват —
   // приложение, публикация или календарь (Google перечитывает подписку сам, часами).
-  const [checks, setChecks] = useState<Partial<Record<FeedSection, FeedCheck | null>>>({});
+  const [checks, setChecks] = useState<Partial<Record<FeedSection, FeedCheckResult>>>({});
   // Отдельно от общего busy: пока раздел сохраняется на GitHub (~пара секунд), рядом с его
   // переключателем должна быть подпись «включаем…/выключаем…» — иначе выглядит как зависание
   // (владелец 05.10.2026, по образцу push-блока из приёмки 0.3.3).
@@ -198,14 +237,17 @@ export default function FeedSubscriptionSection() {
     void (async () => {
       for (const section of ['deadlines', 'tasks'] as const) {
         if (!state.sections[section] || state.publishedAt === null) continue;
-        const ids = await fetchFeedIds(cfg, state.slugs[section]);
+        const file = await fetchFeedIds(cfg, state.slugs[section]);
         if (cancelled) return;
-        if (ids === null) {
-          setChecks((prev) => ({ ...prev, [section]: null }));
+        if (file.kind !== 'ok') {
+          setChecks((prev) => ({ ...prev, [section]: { kind: file.kind } }));
           continue;
         }
         const items = section === 'deadlines' ? localDeadlines : localTasks;
-        setChecks((prev) => ({ ...prev, [section]: checkFeedSection(section, items, ids) }));
+        setChecks((prev) => ({
+          ...prev,
+          [section]: { kind: 'ok', check: checkFeedSection(section, items, file.ids) },
+        }));
       }
     })();
     return () => {
@@ -304,12 +346,8 @@ export default function FeedSubscriptionSection() {
                     </button>
                     {state.publishedAt === null ? (
                       <span className="tiny muted">Файл появится после ближайшего запуска</span>
-                    ) : checks[section] === undefined ? null : checks[section] === null ? (
-                      <span className="tiny muted">
-                        Проверить файл не удалось — ссылка всё равно работает.
-                      </span>
-                    ) : (
-                      <FeedCheckLine check={checks[section]} section={section} />
+                    ) : checks[section] === undefined ? null : (
+                      <FeedCheckLine result={checks[section]} section={section} />
                     )}
                     {state.publishedAt !== null && checks[section] === undefined && (
                       <span className="tiny muted" data-testid={`feed-published-${section}`}>

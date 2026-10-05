@@ -41,6 +41,13 @@ let puts: string[] = [];
 let dispatches: string[] = [];
 /** Задержка сохранения: позволяет увидеть подпись «включаем…» в момент записи. */
 let putGate: Promise<void> | null = null;
+/**
+ * Как ведёт себя адрес подписки (raw.githubusercontent.com). Провайдеры в России его иногда
+ * закрывают, поэтому у приложения есть запасной путь через api.github.com.
+ */
+let rawMode: 'ok' | 'fail' | 'missing' = 'ok';
+/** Ответ запасного пути: содержимое файла ленты ('' — файла нет, 'fail' — запрос не прошёл). */
+let apiMode: 'ok' | 'fail' | 'missing' = 'ok';
 
 function stubGithub() {
   vi.stubGlobal(
@@ -50,6 +57,13 @@ function stubGithub() {
         return new Response(JSON.stringify(VAPID), { status: 200 });
       }
       if (String(url).includes('raw.githubusercontent.com')) {
+        if (rawMode === 'fail') throw new TypeError('Failed to fetch');
+        if (rawMode === 'missing') return new Response('404: Not Found', { status: 404 });
+        return new Response(FEED_ICS, { status: 200 });
+      }
+      if (String(url).includes('/contents/feed/')) {
+        if (apiMode === 'fail') throw new TypeError('Failed to fetch');
+        if (apiMode === 'missing') return new Response('{}', { status: 404 });
         return new Response(FEED_ICS, { status: 200 });
       }
       const target = new URL(String(url));
@@ -87,6 +101,8 @@ beforeEach(async () => {
   puts = [];
   dispatches = [];
   putGate = null;
+  rawMode = 'ok';
+  apiMode = 'ok';
   await db.kv.clear();
   await db.deadlines.clear();
   await db.tasks.clear();
@@ -239,6 +255,58 @@ describe('лента в Настройках', () => {
     expect(check.textContent).toContain('Ещё не опубликовано: 1');
     // И честная подсказка про причину на стороне Google.
     expect(check.textContent).toContain('Google');
+  });
+
+  it('адрес подписки закрыт провайдером — читаем файл через api.github.com', async () => {
+    stored = {
+      sections: { deadlines: true, tasks: false },
+      slugs: { deadlines: 'a'.repeat(32), tasks: 'b'.repeat(32) },
+      previousSlugs: [],
+      publishedAt: '2026-10-05T11:48:30.000Z',
+    };
+    // Ровно случай владельца: raw.githubusercontent.com не открывается, а api.github.com
+    // работает — через него идёт синхронизация.
+    rawMode = 'fail';
+    await db.deadlines.put({
+      id: 'keep',
+      title: 'Опубликованный',
+      dueDate: '2026-10-07',
+      visibility: 'family',
+    } as never);
+    render(<FeedSubscriptionSection />);
+    const check = await screen.findByTestId('feed-check-deadlines');
+    await waitFor(() => expect(check.textContent).toContain('В файле сейчас: 1 событие'));
+  });
+
+  it('файла по ссылке ещё нет — говорим, что публикация не проходила', async () => {
+    stored = {
+      sections: { deadlines: true, tasks: false },
+      slugs: { deadlines: 'a'.repeat(32), tasks: 'b'.repeat(32) },
+      previousSlugs: [],
+      publishedAt: '2026-10-05T11:48:30.000Z',
+    };
+    rawMode = 'missing';
+    apiMode = 'missing';
+    render(<FeedSubscriptionSection />);
+    const check = await screen.findByTestId('feed-check-deadlines');
+    await waitFor(() => expect(check.textContent).toContain('Файла по этой ссылке пока нет'));
+    expect(check.textContent).toContain('Обновить ленту');
+  });
+
+  it('не читается ни одним путём — объясняем честно и про подписку не пугаем', async () => {
+    stored = {
+      sections: { deadlines: true, tasks: false },
+      slugs: { deadlines: 'a'.repeat(32), tasks: 'b'.repeat(32) },
+      previousSlugs: [],
+      publishedAt: '2026-10-05T11:48:30.000Z',
+    };
+    rawMode = 'fail';
+    apiMode = 'fail';
+    render(<FeedSubscriptionSection />);
+    const check = await screen.findByTestId('feed-check-deadlines');
+    await waitFor(() => expect(check.textContent).toContain('прочитать не удалось'));
+    expect(check.textContent).toContain('не влияет');
+    expect(check.textContent).toContain('BEGIN:VCALENDAR');
   });
 
   it('«Обновить ленту сейчас» просит GitHub запустить отправителя и обещает перечитать файл', async () => {
