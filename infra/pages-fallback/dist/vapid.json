@@ -11,6 +11,6 @@
     "owner": "Help-yourself-dvp",
     "repo": "FAMILY-HUB",
     "workflow": "push-sender.yml",
-    "ref": "arena/01a0fbcb-family-hub"
+    "ref": "main"
   }
 }
