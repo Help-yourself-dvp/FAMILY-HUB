@@ -263,6 +263,21 @@ it('быстрая проверка будильника не создаёт с�
   expect(calendarClick).toHaveBeenCalledOnce();
 });
 
+describe('тексты раздела «Уведомления» (0.6.8)', () => {
+  it('без техданных: никаких инструкций для GitHub и устройства', async () => {
+    await openNotifications();
+    const text = document.body.textContent ?? '';
+    // Ровно то, что владелец просил убрать: инструкции для GitHub и устройство диагностики.
+    for (const word of ['Run workflow', 'Actions: write', 'Диагностик', 'raw.githubusercontent']) {
+      expect(text).not.toContain(word);
+    }
+    // Просто и коротко — как просил владелец: «как для ребёнка».
+    expect(text).toContain('Каждый переключатель — свой способ напоминания');
+    expect(text).toContain('Просит GitHub проверить события и отправить напоминания прямо сейчас');
+    expect(text).toContain('Выключено по умолчанию');
+  });
+});
+
 describe('текст ошибки включения push (регрессия 03.10)', () => {
   it('конфликт записи в хранилище не сваливается на «сервисы Google»', () => {
     const text = describeEnableError(
@@ -283,7 +298,8 @@ describe('текст ошибки включения push (регрессия 03
     const domException = Object.assign(new Error('Registration failed - push service error'), {
       name: 'AbortError',
     });
-    expect(describeEnableError(domException)).toMatch(/Служба push недоступна/u);
+    // 0.6.8: текст стал короче, но по-прежнему честный и с подсказкой про Android.
+    expect(describeEnableError(domException)).toMatch(/Push не подключился/u);
     expect(describeEnableError(domException)).toMatch(/сервисы Google/u);
   });
 });

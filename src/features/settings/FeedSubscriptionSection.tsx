@@ -69,12 +69,8 @@ function FeedCheckLine({ result, section }: { result: FeedCheckResult; section: 
     return (
       <div className="stack tiny muted" style={{ gap: 4 }} data-testid={`feed-check-${section}`}>
         <span>
-          Файла по этой ссылке пока нет — публикация ещё не проходила. Нажмите «Обновить ленту
-          сейчас», и он появится через 1–2 минуты.
-        </span>
-        <span>
-          Если вы недавно меняли ссылку кнопкой «Сменить ссылку», в календаре нужно заменить адрес
-          на новый: прежние файлы отправитель удаляет.
+          Файла по этой ссылке пока нет. Нажмите «Обновить ленту сейчас» — появится через 1–2
+          минуты. Если недавно нажимали «Сменить ссылку», вставьте новый адрес в календарь.
         </span>
       </div>
     );
@@ -83,13 +79,12 @@ function FeedCheckLine({ result, section }: { result: FeedCheckResult; section: 
     return (
       <div className="stack tiny muted" style={{ gap: 4 }} data-testid={`feed-check-${section}`}>
         <span>
-          С телефона файл прочитать не удалось (обычно так делает провайдер — адрес
-          raw.githubusercontent.com бывает закрыт). На подписку это не влияет: календарь скачивает
-          ленту со своей стороны.
+          С телефона прочитать не удалось — обычно так делает провайдер. На подписку это не влияет:
+          календарь скачивает ленту сам.
         </span>
         <span>
-          Проверить вручную: откройте ссылку выше в браузере телефона — должен открыться текст,
-          начинающийся с BEGIN:VCALENDAR.
+          Проверить вручную: откройте ссылку выше в браузере — должен открыться текст, начинающийся
+          с BEGIN:VCALENDAR.
         </span>
       </div>
     );
@@ -105,12 +100,13 @@ function FeedCheckBody({ check, section }: { check: FeedCheck; section: FeedSect
     [check.missing],
   );
   const pending = check.missing.length - notable.length;
+  const hasGaps = check.missing.length > 0;
   const shown = expanded ? notable : notable.slice(0, 3);
   return (
     <div className="stack tiny muted" style={{ gap: 4 }} data-testid={`feed-check-${section}`}>
       <span>
         В файле сейчас: {check.published} {eventsWord(check.published)}
-        {check.published === 0 ? ' — пока пусто, события появятся после публикации.' : '.'}
+        {check.published === 0 ? ' — пока пусто.' : '.'}
       </span>
       {pending > 0 && <span>Ещё не опубликовано: {pending} — подождите пару минут.</span>}
       {notable.length > 0 && (
@@ -130,9 +126,9 @@ function FeedCheckBody({ check, section }: { check: FeedCheck; section: FeedSect
           )}
         </span>
       )}
-      <span>
-        Если в календаре Google событий ещё нет — он перечитывает ленту сам (часы, иногда сутки).
-      </span>
+      {hasGaps && (
+        <span>Если в Google событий ещё нет — он обновится сам (часы, иногда сутки).</span>
+      )}
     </div>
   );
 }
@@ -291,8 +287,7 @@ export default function FeedSubscriptionSection() {
       </div>
 
       <p className="small" style={{ margin: 0, lineHeight: 1.55, color: 'var(--text-2)' }}>
-        События сами появляются в календаре телефона у всех участников: один раз подписались —
-        дальше без галочек и файлов. Календарь перечитывает ленту несколько раз в сутки.
+        События сами появляются в календаре телефона. Подпишитесь один раз — дальше без файлов.
       </p>
 
       {state === undefined ? (
@@ -360,10 +355,7 @@ export default function FeedSubscriptionSection() {
                     </button>
                     {state.publishedAt === null ? (
                       <span className="tiny muted">Файл появится после ближайшего запуска</span>
-                    ) : checks[section] === undefined ? null : (
-                      <FeedCheckLine result={checks[section]} section={section} />
-                    )}
-                    {state.publishedAt !== null && checks[section] === undefined && (
+                    ) : (
                       <span className="tiny muted" data-testid={`feed-published-${section}`}>
                         Обновлено: {formatPublishedAt(state.publishedAt)}
                       </span>
@@ -407,6 +399,22 @@ export default function FeedSubscriptionSection() {
               Как подписаться
             </button>
           </div>
+
+          {state && anyEnabled && state.publishedAt !== null && (
+            <div className="stack" style={{ gap: 'var(--sp-2)' }}>
+              {(['deadlines', 'tasks'] as const).map((section) =>
+                state.sections[section] ? (
+                  <div key={section} className="stack" style={{ gap: 2 }}>
+                    <span className="tiny strong">{SECTION_INFO[section].title}:</span>
+                    <FeedCheckLine
+                      result={checks[section] ?? { kind: 'checking' }}
+                      section={section}
+                    />
+                  </div>
+                ) : null,
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -422,9 +430,8 @@ export default function FeedSubscriptionSection() {
       <Sheet open={helpOpen} title="Лента: как это работает" onClose={() => setHelpOpen(false)}>
         <div className="stack">
           <p className="small" style={{ margin: 0 }}>
-            Лента — это календарь, который ваш телефон скачивает сам. Мы кладём по ссылке свежий
-            список, календарь его перечитывает (несколько раз в сутки), поэтому события появляются у
-            всех участников без ручной работы.
+            Лента — календарь, который телефон скачивает сам. Ссылка одна на всю семью; календарь
+            перечитывает её несколько раз в сутки.
           </p>
           <div className="small">
             <div className="strong">Подписаться (один раз на телефон)</div>
@@ -433,15 +440,13 @@ export default function FeedSubscriptionSection() {
               календарь → вставить ссылку.
             </div>
             <div className="muted">
-              Android/Google: на компьютере calendar.google.com → «Другие календари» → «Создать
-              календарь» → вкладка «Добавить по URL» → вставить ссылку.
+              Android/Google: на компьютере calendar.google.com → «Другие календари» → «+» →
+              «Добавить по URL» → вставить ссылку.
             </div>
           </div>
           <div className="small">
             <div className="strong">Что важно знать</div>
-            <div className="muted">
-              Обновление не мгновенное: часы, иногда сутки — так работают календари.
-            </div>
+            <div className="muted">Обновление не мгновенное: часы, иногда сутки.</div>
             <div className="muted">
               На iPhone у подписного календаря есть переключатель «Удалить будильники»: если он
               включён, событие будет видно, а звонка не будет.

@@ -170,8 +170,7 @@ const emptyDelivery = (channelId: ChannelId): DeliveryReport => ({
 class LocalForegroundChannel implements NotificationChannel {
   readonly id = 'local-foreground' as const;
   readonly label = 'Уведомления в приложении';
-  readonly description =
-    'Лента на Главной и системные уведомления, пока приложение открыто. Работает всегда, не требует интернета и внешних сервисов.';
+  readonly description = 'Показывает напоминания, пока приложение открыто. Настроек не требует.';
   readonly worksScreenOff = false;
   readonly needsExternalInfra = false;
   readonly level = 0 as const;
@@ -246,7 +245,7 @@ class IcsCalendarChannel implements NotificationChannel {
   readonly id = 'ics-calendar' as const;
   readonly label = 'Календарь телефона (ICS)';
   readonly description =
-    'Резервный файл календаря: обычные события в 09:00 (Москва) с напоминаниями. «Включено» означает только скачивание. Импорт подтвердите сами; открытие файла на Android не гарантирует добавление. Выключение здесь не удаляет события из календаря.';
+    'Файл календаря на случай, когда нет интернета: события в 09:00 (Москва) с напоминаниями. Импорт подтверждаете вы сами. Выключение не удаляет уже добавленные события.';
   readonly worksScreenOff = true;
   readonly needsExternalInfra = false;
   readonly level = 1 as const;
@@ -295,7 +294,7 @@ class WebPushChannel implements NotificationChannel {
   readonly id = 'web-push' as const;
   readonly label = 'Push при закрытом приложении';
   readonly description =
-    'Системные уведомления приходят, даже когда приложение закрыто. На iPhone нужна установка приложения на экран «Домой».';
+    'Уведомления приходят, даже когда приложение закрыто. На iPhone приложение нужно установить на экран «Домой».';
   readonly worksScreenOff = true;
   readonly needsExternalInfra = true;
   readonly level = 2 as const;

@@ -251,8 +251,12 @@ describe('лента в Настройках', () => {
       { id: 'fresh', title: 'Только что', dueDate: '2026-10-09', visibility: 'family' },
     ] as never);
     render(<FeedSubscriptionSection />);
-    const check = await screen.findByTestId('feed-check-deadlines');
-    await waitFor(() => expect(check.textContent).toContain('В файле сейчас: 1 событие'));
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-check-deadlines').textContent).toContain(
+        'В файле сейчас: 1 событие',
+      ),
+    );
+    const check = screen.getByTestId('feed-check-deadlines');
     expect(check.textContent).toContain('Секретное');
     expect(check.textContent).toContain('личный срок');
     expect(check.textContent).toContain('Ещё не опубликовано: 1');
@@ -277,8 +281,11 @@ describe('лента в Настройках', () => {
       visibility: 'family',
     } as never);
     render(<FeedSubscriptionSection />);
-    const check = await screen.findByTestId('feed-check-deadlines');
-    await waitFor(() => expect(check.textContent).toContain('В файле сейчас: 1 событие'));
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-check-deadlines').textContent).toContain(
+        'В файле сейчас: 1 событие',
+      ),
+    );
   });
 
   it('файла по ссылке ещё нет — говорим, что публикация не проходила', async () => {
@@ -291,9 +298,12 @@ describe('лента в Настройках', () => {
     rawMode = 'missing';
     apiMode = 'missing';
     render(<FeedSubscriptionSection />);
-    const check = await screen.findByTestId('feed-check-deadlines');
-    await waitFor(() => expect(check.textContent).toContain('Файла по этой ссылке пока нет'));
-    expect(check.textContent).toContain('Обновить ленту');
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-check-deadlines').textContent).toContain(
+        'Файла по этой ссылке пока нет',
+      ),
+    );
+    expect(screen.getByTestId('feed-check-deadlines').textContent).toContain('Обновить ленту');
   });
 
   it('не читается ни одним путём — объясняем честно и про подписку не пугаем', async () => {
@@ -306,8 +316,12 @@ describe('лента в Настройках', () => {
     rawMode = 'fail';
     apiMode = 'fail';
     render(<FeedSubscriptionSection />);
-    const check = await screen.findByTestId('feed-check-deadlines');
-    await waitFor(() => expect(check.textContent).toContain('прочитать не удалось'));
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-check-deadlines').textContent).toContain(
+        'прочитать не удалось',
+      ),
+    );
+    const check = screen.getByTestId('feed-check-deadlines');
     expect(check.textContent).toContain('не влияет');
     expect(check.textContent).toContain('BEGIN:VCALENDAR');
   });
@@ -396,6 +410,23 @@ describe('лента в Настройках', () => {
     await waitFor(() => expect(dispatches).toHaveLength(1));
     expect(dispatches[0]).toContain('/actions/workflows/push-sender.yml/dispatches');
     expect(await screen.findByText(/1–2 минуты/u)).toBeTruthy();
+  });
+
+  it('результат сверки стоит под кнопками, а не над ссылкой', async () => {
+    stored = {
+      sections: { deadlines: true, tasks: false },
+      slugs: { deadlines: 'a'.repeat(32), tasks: 'b'.repeat(32) },
+      previousSlugs: [],
+      publishedAt: '2026-10-05T11:48:30.000Z',
+    };
+    render(<FeedSubscriptionSection />);
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-check-deadlines').textContent).toContain('В файле сейчас'),
+    );
+    const check = screen.getByTestId('feed-check-deadlines');
+    const button = screen.getByRole('button', { name: 'Перечитать файл' });
+    // Владелец 05.10.2026: жал на кнопку и искал ответ рядом с ней, а не выше ссылки.
+    expect(button.compareDocumentPosition(check) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('«Перечитать файл» обновляет сверку без новых правок', async () => {
