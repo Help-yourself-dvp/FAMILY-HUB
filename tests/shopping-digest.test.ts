@@ -13,6 +13,7 @@ import { entityRows } from '../scripts/push-sender-data.mjs';
 import senderSource from '../scripts/push-sender.mjs?raw';
 import {
   SHOPPING_DIGEST_MIN_INTERVAL_MS,
+  SHOPPING_FIRST_WINDOW_MS,
   digestAllowed,
   digestText,
   shoppingChanges,
@@ -121,6 +122,13 @@ describe('формат хранения покупок', () => {
     expect(rows).toHaveLength(1);
     expect(entityRows([item()])).toHaveLength(1);
     expect(entityRows({ entities: {} })).toEqual([]);
+  });
+});
+
+describe('первый дайджест на устройстве', () => {
+  it('смотрит на сутки назад — иначе тест владельца не увидел бы свою покупку', () => {
+    expect(SHOPPING_FIRST_WINDOW_MS).toBe(24 * 60 * 60 * 1000);
+    expect(senderSource).toContain('SHOPPING_FIRST_WINDOW_MS');
   });
 });
 

@@ -34,3 +34,24 @@ export function nearestDatedTasks(tasks: Task[], limit = 3): Task[] {
     .sort(compareOpenTasks)
     .slice(0, limit);
 }
+
+/**
+ * Главная: список «Ближайшие дела» (просьба владельца 05.10.2026).
+ * Сначала дела с датой (как раньше, ближайшие), затем — дела без даты (в том числе без
+ * исполнителя): они не теряются, но и не оттесняют срочное. Порядок внутри группы
+ * детерминированный (compareOpenTasks), поэтому на разных телефонах список одинаков.
+ */
+export function homeTaskList(tasks: Task[], datedLimit = 3, undatedLimit = 3): Task[] {
+  const open = tasks.filter((task) => !task.deletedAt && task.status === 'open');
+  const dated = open
+    .filter((task) => isDateOnly(task.dueDate))
+    .sort(compareOpenTasks)
+    .slice(0, datedLimit);
+  // «Без даты» — это именно отсутствие даты; задача с испорченной датой остаётся в
+  // разделе «Дела», чтобы на Главной не путать её с планом без срока.
+  const undated = open
+    .filter((task) => !task.dueDate)
+    .sort(compareOpenTasks)
+    .slice(0, undatedLimit);
+  return [...dated, ...undated];
+}

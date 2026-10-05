@@ -8,6 +8,7 @@ import { readDisplayMode } from './helpers';
 import { log } from '../../shared/log';
 import { SCHEMA_VERSION } from '../../domain/types';
 import { notificationDeliverySnapshot } from '../../notifications/deliveryState';
+import { kvGet, KV_KEYS } from '../../data/db';
 
 export default function DiagnosticsSection() {
   const sync = useSyncState();
@@ -111,6 +112,10 @@ export default function DiagnosticsSection() {
         lastSuccessAt: sync.lastSuccessAt,
         lastError: sync.lastError,
         rateRemaining: sync.rateRemaining,
+      },
+      prefs: {
+        // Только булево значение настройки этого устройства: содержимого нет.
+        shoppingPush: (await kvGet<boolean>(KV_KEYS.notifyShoppingPush)) === true,
       },
       channels: diag.map((d) => ({
         id: d.channelId,

@@ -12,7 +12,7 @@ import { HORIZON_LABEL, type Horizon } from '../../domain/types';
 import { Banner, Icon, Skeleton, Stat } from '../../design/ui';
 import { useSyncState } from '../../app/hooks';
 import { PHASE_LABEL } from '../../data/sync/state';
-import { nearestDatedTasks, taskDateLabel } from '../../domain/taskRules';
+import { homeTaskList, taskDateLabel } from '../../domain/taskRules';
 
 export default function HomeScreen({ ready }: { ready: boolean }) {
   const items = useLiveQuery(() => db.shopping.toArray(), [], undefined);
@@ -23,7 +23,7 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
   );
   const members = useLiveQuery(() => db.members.toArray(), [], undefined);
   const tasks = useLiveQuery(() => db.tasks.toArray(), [], undefined);
-  const nearbyTasks = useMemo(() => nearestDatedTasks(tasks ?? []), [tasks]);
+  const nearbyTasks = useMemo(() => homeTaskList(tasks ?? []), [tasks]);
   const deadlines = useLiveQuery(
     () => db.deadlines.filter((d) => !d.deletedAt && d.visibility === 'family').toArray(),
     [],
@@ -178,7 +178,7 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
             ))}
           </div>
         ) : (
-          <div className="small muted">Открытых дел с датой пока нет.</div>
+          <div className="small muted">Открытых дел пока нет.</div>
         )}
       </section>
 

@@ -31,7 +31,7 @@ import { sendPushTest } from './push-test.mjs';
 import { sendTaskPush } from './task-push.mjs';
 import { deadlineRows, entityRows } from './push-sender-data.mjs';
 import {
-  SHOPPING_DIGEST_MIN_INTERVAL_MS,
+  SHOPPING_FIRST_WINDOW_MS,
   digestAllowed,
   digestText,
   shoppingChanges,
@@ -306,9 +306,9 @@ async function main() {
     if (!digestAllowed(Date.now(), lastSentAt)) {
       annotation('notice', 'Дайджест покупок: пропуск — прошлый отправлен меньше 30 минут назад.');
     } else {
-      // Первый дайджест не вываливает всю историю: окно — те же 30 минут.
-      const sinceIso =
-        lastSentAt ?? new Date(Date.now() - SHOPPING_DIGEST_MIN_INTERVAL_MS).toISOString();
+      // Первый дайджест смотрит на сутки назад (изменения, сделанные до включения тумблера,
+      // иначе не попали бы ни в одно уведомление), дальше — окно от прошлой отправки.
+      const sinceIso = lastSentAt ?? new Date(Date.now() - SHOPPING_FIRST_WINDOW_MS).toISOString();
       let digestSent = 0;
       let digestErrors = 0;
       for (const s of digestRecipients) {

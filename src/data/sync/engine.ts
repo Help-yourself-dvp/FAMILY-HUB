@@ -24,6 +24,7 @@ import {
 export type { LocalStorePort, RemoteStorePort } from './core';
 import { setSyncState } from './state';
 import { log } from '../../shared/log';
+import { wakePushSender } from '../remote/wake';
 import { appendActivity, placeLabel } from '../repositories';
 import type { EntityKind, Syncable } from '../../domain/types';
 import { ENTITY_KINDS } from '../../domain/types';
@@ -185,6 +186,12 @@ export async function syncNow(_reason: string): Promise<void> {
     });
 
     log.emit({ type: 'sync:completed', kinds, durationMs, pushed, pulled });
+    if (pushed > 0) {
+      // Это устройство что-то изменило — просим GitHub запустить отправку сейчас, не
+      // дожидаясь расписания (оно может молчать часами). Не ждём ответа: синхронизация
+      // важнее, а «будильник» сам ограничен одной просьбой в минуту.
+      void wakePushSender('push');
+    }
   } catch (e) {
     const code = 'internal';
     const message = e instanceof Error ? e.message : String(e);

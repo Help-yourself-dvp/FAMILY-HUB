@@ -16,7 +16,9 @@ export type SyncLogEvent =
   | { type: 'auth:changed'; present: boolean }
   | { type: 'app:installed' }
   | { type: 'app:update-available' }
-  | { type: 'push:step'; step: string };
+  | { type: 'push:step'; step: string }
+  /** «Будильник» отправителя: ok=false означает «права/сеть», данные не передаются. */
+  | { type: 'wake'; ok: boolean; reason: string };
 
 const MAX_ENTRIES = 200;
 const ring: Array<{ at: string; event: SyncLogEvent }> = [];

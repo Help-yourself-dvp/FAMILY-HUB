@@ -66,9 +66,14 @@ describe('отдельная проверка push', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('проверка включается только явным workflow_dispatch, не cron', () => {
+  it('ручной запуск по умолчанию делает обычный цикл, проверочный push — по выбору', () => {
+    // 0.5.8: владелец запускал Run workflow в надежде проверить дайджест покупок, а
+    // получал проверочный push и не понимал, где данные. Теперь режим выбирается, по
+    // умолчанию — рабочий цикл; cron всегда рабочий.
     expect(workflow).toContain(
-      "FH_PUSH_MODE: ${{ github.event_name == 'workflow_dispatch' && 'test' || 'reminders' }}",
+      "FH_PUSH_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'reminders' }}",
     );
+    expect(workflow).toMatch(/default: reminders/u);
+    expect(workflow).toMatch(/- reminders\n\s*- test/u);
   });
 });

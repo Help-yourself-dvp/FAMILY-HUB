@@ -1,5 +1,6 @@
 /** Чистые функции дайджеста покупок; семейные данные здесь не читаются. */
 export const SHOPPING_DIGEST_MIN_INTERVAL_MS: number;
+export const SHOPPING_FIRST_WINDOW_MS: number;
 export const SHOPPING_TITLES_LIMIT: number;
 
 export interface ShoppingDigestItem {

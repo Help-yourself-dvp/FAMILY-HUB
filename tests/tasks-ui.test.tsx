@@ -70,7 +70,7 @@ async function addNamed(form: HTMLElement, name: string) {
 }
 
 describe('Дела: базовая приёмка', () => {
-  it('Главная показывает ближайшие открытые датированные дела, но не завершённые/без даты', async () => {
+  it('Главная показывает ближайшие дела с датой, затем без даты; завершённые скрыты', async () => {
     await tasksRepo.add({ title: 'Без даты' });
     const completed = await tasksRepo.add({ title: 'Сделано с датой', dueDate: '2027-04-01' });
     await tasksRepo.setDone(completed.id, true);
@@ -83,7 +83,10 @@ describe('Дела: базовая приёмка', () => {
     render(<App ready />);
     const section = await screen.findByRole('region', { name: 'Ближайшие дела' });
     await within(section).findByText('Ближайшее поручение');
-    expect(within(section).queryByText('Без даты')).toBeNull();
+    // Решение владельца 05.10.2026: дела без даты тоже видны, но строго в конце списка.
+    await within(section).findByText('Без даты');
+    const texts = [...section.querySelectorAll('.small')].map((el) => el.textContent ?? '');
+    expect(texts.indexOf('Без даты')).toBeGreaterThan(texts.indexOf('Ближайшее поручение'));
     expect(within(section).queryByText('Сделано с датой')).toBeNull();
     expect(section.textContent).toContain('Учебный исполнитель');
     fireEvent.click(within(section).getByRole('link', { name: 'Все дела' }));
