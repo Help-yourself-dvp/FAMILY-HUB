@@ -21,13 +21,15 @@ const fromB64 = (text: string) =>
 
 let stored: Record<string, unknown> | null = null;
 let puts: string[] = [];
+/** Задержка сохранения: позволяет увидеть подпись «включаем…» в момент записи. */
+let putGate: Promise<void> | null = null;
 
 function stubGithub() {
   vi.stubGlobal(
     'fetch',
-    vi.fn((url: string, init?: RequestInit) => {
+    vi.fn(async (url: string, init?: RequestInit) => {
       if (String(url).includes('vapid.json')) {
-        return Promise.resolve(new Response(JSON.stringify(VAPID), { status: 200 }));
+        return new Response(JSON.stringify(VAPID), { status: 200 });
       }
       const target = new URL(String(url));
       if (!target.pathname.startsWith('/repos/')) throw new Error(`неожиданный запрос ${url}`);
@@ -36,24 +38,21 @@ function stubGithub() {
           content: string;
         };
         puts.push(fromB64(body.content));
-        return Promise.resolve(
-          new Response(JSON.stringify({ content: { sha: 'new' } }), { status: 200 }),
-        );
+        if (putGate) await putGate;
+        return new Response(JSON.stringify({ content: { sha: 'new' } }), { status: 200 });
       }
       if (target.pathname.endsWith('/data/feed.json')) {
-        if (!stored) return Promise.resolve(new Response('{}', { status: 404 }));
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              sha: 'sha-1',
-              encoding: 'base64',
-              content: toB64(JSON.stringify(stored)),
-            }),
-            { status: 200 },
-          ),
+        if (!stored) return new Response('{}', { status: 404 });
+        return new Response(
+          JSON.stringify({
+            sha: 'sha-1',
+            encoding: 'base64',
+            content: toB64(JSON.stringify(stored)),
+          }),
+          { status: 200 },
         );
       }
-      return Promise.resolve(new Response('{}', { status: 404 }));
+      return new Response('{}', { status: 404 });
     }),
   );
 }
@@ -61,6 +60,7 @@ function stubGithub() {
 beforeEach(async () => {
   stored = null;
   puts = [];
+  putGate = null;
   await db.kv.clear();
   await kvSet(KV_KEYS.remoteOwner, 'fixture-owner');
   await kvSet(KV_KEYS.remoteRepo, 'fixture-data');
@@ -114,6 +114,48 @@ describe('лента в Настройках', () => {
     // Секретная часть адреса при включении не меняется — ссылка остаётся прежней.
     expect(saved.slugs.deadlines).toBe('a'.repeat(32));
     expect(await screen.findByText(/ближайший запуск/u)).toBeTruthy();
+  });
+
+  it('во время сохранения подпись говорит «включаем…/выключаем…», как в push-блоке', async () => {
+    stored = {
+      sections: { deadlines: false, tasks: false },
+      slugs: { deadlines: 'a'.repeat(32), tasks: 'b'.repeat(32) },
+      previousSlugs: [],
+      publishedAt: null,
+    };
+    let release!: () => void;
+    putGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    render(<FeedSubscriptionSection />);
+    const sw = await screen.findByLabelText('Лента: Сроки');
+    expect(screen.getByTestId('feed-state-deadlines').textContent).toBe('выключено');
+    expect(screen.getByTestId('feed-state-tasks').textContent).toBe('выключено');
+
+    await userEvent.click(sw);
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-state-deadlines').textContent).toBe('включаем…'),
+    );
+    // Соседний раздел не мигает: подпись относится только к своему переключателю.
+    expect(screen.getByTestId('feed-state-tasks').textContent).toBe('выключено');
+    release();
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-state-deadlines').textContent).toBe('включено'),
+    );
+
+    // Выключение подписано так же честно.
+    let releaseOff!: () => void;
+    putGate = new Promise<void>((resolve) => {
+      releaseOff = resolve;
+    });
+    await userEvent.click(screen.getByLabelText('Лента: Сроки'));
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-state-deadlines').textContent).toBe('выключаем…'),
+    );
+    releaseOff();
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-state-deadlines').textContent).toBe('выключено'),
+    );
   });
 
   it('«Сменить ссылку» выдаёт новые адреса, а прежние уходят на удаление', async () => {

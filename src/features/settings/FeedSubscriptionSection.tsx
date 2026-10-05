@@ -41,6 +41,10 @@ export default function FeedSubscriptionSection() {
   const [state, setState] = useState<FeedState | null | undefined>(undefined);
   const [cfg, setCfg] = useState<FeedConfig | null>(null);
   const [busy, setBusy] = useState(false);
+  // Отдельно от общего busy: пока раздел сохраняется на GitHub (~пара секунд), рядом с его
+  // переключателем должна быть подпись «включаем…/выключаем…» — иначе выглядит как зависание
+  // (владелец 05.10.2026, по образцу push-блока из приёмки 0.3.3).
+  const [busySection, setBusySection] = useState<FeedSection | null>(null);
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'err'; text: string } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
 
@@ -62,6 +66,7 @@ export default function FeedSubscriptionSection() {
 
   const toggle = async (section: FeedSection, enabled: boolean) => {
     setBusy(true);
+    setBusySection(section);
     setNotice(null);
     try {
       const next = await setFeedSection(state ?? null, section, enabled);
@@ -75,6 +80,7 @@ export default function FeedSubscriptionSection() {
     } catch (e) {
       setNotice({ tone: 'err', text: describeStorageFailure(e) });
     } finally {
+      setBusySection(null);
       setBusy(false);
     }
   };
@@ -150,12 +156,27 @@ export default function FeedSubscriptionSection() {
                   </div>
                   <div className="tiny muted">{SECTION_INFO[section].hint}</div>
                 </div>
-                <Switch
-                  checked={state?.sections[section] ?? false}
-                  label={`Лента: ${SECTION_INFO[section].title}`}
-                  disabled={busy}
-                  onChange={(v) => void toggle(section, v)}
-                />
+                <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'nowrap' }}>
+                  <span
+                    className="tiny muted"
+                    style={{ whiteSpace: 'nowrap' }}
+                    data-testid={`feed-state-${section}`}
+                  >
+                    {busySection === section
+                      ? (state?.sections[section] ?? false)
+                        ? 'выключаем…'
+                        : 'включаем…'
+                      : (state?.sections[section] ?? false)
+                        ? 'включено'
+                        : 'выключено'}
+                  </span>
+                  <Switch
+                    checked={state?.sections[section] ?? false}
+                    label={`Лента: ${SECTION_INFO[section].title}`}
+                    disabled={busy}
+                    onChange={(v) => void toggle(section, v)}
+                  />
+                </div>
               </div>
               {!state?.sections[section] && (
                 <div className="tiny muted">

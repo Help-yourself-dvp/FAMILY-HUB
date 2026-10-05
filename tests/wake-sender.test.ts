@@ -31,7 +31,7 @@ interface Call {
   authorization: string | null;
 }
 
-function stubFetch(dispatchStatus: number): Call[] {
+function stubFetch(dispatchStatus: number, repoStatus = 404): Call[] {
   const calls: Call[] = [];
   vi.stubGlobal(
     'fetch',
@@ -45,7 +45,12 @@ function stubFetch(dispatchStatus: number): Call[] {
         body: typeof init?.body === 'string' ? init.body : '',
         authorization: new Headers(init?.headers).get('Authorization'),
       });
-      return Promise.resolve(new Response(null, { status: dispatchStatus }));
+      // Проверка «виден ли репозиторий» — обычный GET метаданных, не запуск.
+      const status =
+        String(url).includes('/repos/') && !String(url).includes('/dispatches')
+          ? repoStatus
+          : dispatchStatus;
+      return Promise.resolve(new Response(null, { status }));
     }),
   );
   return calls;
@@ -85,16 +90,39 @@ describe('wakePushSender', () => {
     expect(calls).toHaveLength(2);
   });
 
-  it('нет права запускать проверки (403) — в журнале виден код ответа', async () => {
-    const calls = stubFetch(403);
-    await expect(wakePushSender('push')).resolves.toEqual({ kind: 'failed', status: 403 });
-    expect(calls).toHaveLength(1);
+  it('403 и репозиторий токену не виден: отказ уточнён до доступа', async () => {
+    const calls = stubFetch(403, 404);
+    await expect(wakePushSender('push')).resolves.toEqual({
+      kind: 'failed',
+      status: 403,
+      repoVisible: false,
+    });
+    // Два запроса: сам запуск и уточняющая проверка метаданных репозитория.
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.url).toContain('/repos/fixture-owner/FAMILY-HUB');
+    expect(calls[1]?.method).toBe('GET');
     // Факт попытки виден в журнале с кодом ответа, но без токена и данных.
     const wakeEntries = log
       .entries()
       .filter((e) => e.event.type === 'wake')
       .map((e) => e.event as { ok: boolean; reason: string; status?: number | null });
     expect(wakeEntries.at(-1)).toMatchObject({ ok: false, reason: 'push', status: 403 });
+  });
+
+  it('403 при видимом репозитории: значит, дело в праве Actions', async () => {
+    const calls = stubFetch(403, 200);
+    await expect(wakePushSender('push')).resolves.toEqual({
+      kind: 'failed',
+      status: 403,
+      repoVisible: true,
+    });
+    expect(calls).toHaveLength(2);
+  });
+
+  it('403 и проба не удалась: причина честно названа неизвестной', async () => {
+    const calls = stubFetch(403, 500);
+    await expect(wakePushSender('push')).resolves.toEqual({ kind: 'failed', status: 403 });
+    expect(calls).toHaveLength(2);
   });
 
   it('токен не видит публичный репозиторий (404) — тоже с кодом', async () => {
@@ -156,6 +184,21 @@ describe('wakeHint — что увидит владелец', () => {
     const hint = wakeHint({ kind: 'failed', status: 403 });
     expect(hint).toMatch(/Actions/u);
     expect(hint).not.toMatch(/Google/u);
+  });
+
+  it('403 без доступа к репозиторию ведёт в Repository access, а не в права', () => {
+    const hint = wakeHint({ kind: 'failed', status: 403, repoVisible: false });
+    expect(hint).toMatch(/Repository access/u);
+    expect(hint).toMatch(/FAMILY-HUB/u);
+    // Совет про права в этом случае только путал бы: токен не видит репозиторий.
+    expect(hint).not.toMatch(/Actions/u);
+    expect(hint).toMatch(/не меняется/u);
+  });
+
+  it('403 при видимом репозитории ведёт к праву Actions: Read and write', () => {
+    const hint = wakeHint({ kind: 'failed', status: 403, repoVisible: true });
+    expect(hint).toMatch(/Actions: Read and write/u);
+    expect(hint).toMatch(/не меняется/u);
   });
 
   it('404 говорит о доступе токена к публичному репозиторию', () => {

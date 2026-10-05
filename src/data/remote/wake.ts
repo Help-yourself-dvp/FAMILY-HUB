@@ -31,8 +31,13 @@ export const WAKE_MIN_INTERVAL_MS = 60_000;
 export type WakeOutcome =
   /** GitHub принял просьбу (HTTP 204) — отправка начнётся в течение минуты-двух. */
   | { kind: 'sent' }
-  /** Просьба ушла, но GitHub отказал. status=null — сеть/прерванный запрос. */
-  | { kind: 'failed'; status: number | null }
+  /**
+   * Просьба ушла, но GitHub отказал. status=null — сеть/прерванный запрос.
+   * repoVisible — уточнение для 403: виден ли токену сам репозиторий приложения.
+   * Для закрытого хранилища это секрет, а публичный репозиторий приложения — нет,
+   * поэтому такую проверку делать безопасно.
+   */
+  | { kind: 'failed'; status: number | null; repoVisible?: boolean }
   /** Даже не пробовали: нет интернета, нет токена, нет настроек или сработал ограничитель. */
   | { kind: 'skipped'; reason: 'offline' | 'token' | 'config' | 'throttle' };
 
@@ -60,6 +65,24 @@ async function loadWakeConfig(): Promise<WakeConfig | null> {
     return { owner: w.owner, repo: w.repo, workflow: w.workflow, ref: w.ref };
   } catch {
     return null;
+  }
+}
+
+/**
+ * При 403 непонятно, чего именно не хватает: права запускать проверки или доступа к
+ * самому репозиторию приложения. Спрашиваем у GitHub метаданные репозитория (он
+ * публичный, секретов там нет): 200 — видит, 404 — не видит вовсе.
+ */
+async function probeRepoVisible(cfg: WakeConfig, token: string): Promise<boolean | undefined> {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${cfg.owner}/${cfg.repo}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+    });
+    if (res.status === 200) return true;
+    if (res.status === 404) return false;
+    return undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -99,6 +122,12 @@ export async function wakePushSender(
         },
       );
       if (res.status === 204) return { kind: 'sent' };
+      if (res.status === 403) {
+        const repoVisible = await probeRepoVisible(cfg, token);
+        return repoVisible === undefined
+          ? { kind: 'failed', status: res.status }
+          : { kind: 'failed', status: res.status, repoVisible };
+      }
       return { kind: 'failed', status: res.status };
     } catch {
       return { kind: 'failed', status: null };
@@ -131,7 +160,13 @@ export function wakeHint(outcome: WakeOutcome): string {
       }[outcome.reason];
     case 'failed':
       if (outcome.status === 403) {
-        return 'GitHub отказал: у токена нет права запускать проверки (Actions: write). Добавьте это право — и «будильник» заработает.';
+        if (outcome.repoVisible === false) {
+          return 'GitHub отказал: токен не видит публичный репозиторий приложения. Откройте настройки токена и добавьте FAMILY-HUB в список Repository access — значение токена при этом не меняется.';
+        }
+        if (outcome.repoVisible === true) {
+          return 'GitHub отказал: репозиторий токен видит, но нет права запускать проверки. Добавьте право Actions: Read and write — значение токена при этом не меняется.';
+        }
+        return 'GitHub отказал: нужны право Actions: Read and write и доступ токена к публичному репозиторию FAMILY-HUB. Значение токена при этом не меняется.';
       }
       if (outcome.status === 404) {
         return 'GitHub не нашёл репозиторий: токен не видит публичный репозиторий приложения. Добавьте его в доступ токена.';
