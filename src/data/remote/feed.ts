@@ -115,6 +115,100 @@ export async function readFeedState(): Promise<FeedState | null> {
   }
 }
 
+/** Префикс UID в ленте: `deadline-<id>@family-hub.local` / `task-<id>@family-hub.local`. */
+const FEED_UID_RE = /UID:(?:deadline|task)-([^@\r\n]+)@family-hub\.local/gu;
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/u;
+
+/**
+ * Идентификаторы событий из опубликованного файла ленты. Переносы строк разворачиваем:
+ * RFC 5545 разрешает резать длинные строки, и UID может оказаться склеенным из двух.
+ */
+export function parseFeedIds(ics: string): Set<string> {
+  const unfolded = ics.replace(/\r?\n[ \t]/gu, '');
+  const ids = new Set<string>();
+  for (const match of unfolded.matchAll(FEED_UID_RE)) {
+    const id = match[1];
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * Читает опубликованный файл ленты (он публичный, поэтому доступен без токена) и отдаёт
+ * идентификаторы событий. null — прочитать не удалось: это не ошибка приложения, поэтому
+ * вызывающий просто ничего не показывает.
+ */
+export async function fetchFeedIds(cfg: FeedConfig, slug: string): Promise<Set<string> | null> {
+  try {
+    const res = await fetch(feedUrl(cfg, slug), { cache: 'no-store' });
+    if (!res.ok) return null;
+    return parseFeedIds(await res.text());
+  } catch {
+    return null;
+  }
+}
+
+/** Что из семейных записей не попало в ленту и почему — простыми словами для владельца. */
+export interface FeedGap {
+  title: string;
+  reason: string;
+}
+
+export interface FeedCheck {
+  /** Сколько событий реально лежит в опубликованном файле. */
+  published: number;
+  /** Записи, которых в файле нет (удалённые не считаем — их владелец и не ждёт). */
+  missing: FeedGap[];
+}
+
+interface FeedItemLike {
+  id: string;
+  title?: string;
+  deletedAt?: string | null;
+  visibility?: string;
+  status?: string;
+  dueDate?: string | null;
+}
+
+/**
+ * Сверяет семейные записи с опубликованным файлом. Причины сформулированы так, чтобы
+ * владелец сразу понимал, ждать ему или поправить запись: личный срок и дело без даты не
+ * публикуются по правилам, а отсутствие только что созданного — это задержка публикации.
+ */
+export function checkFeedSection(
+  section: FeedSection,
+  items: FeedItemLike[],
+  ids: Set<string>,
+): FeedCheck {
+  const missing: FeedGap[] = [];
+  for (const item of items) {
+    if (item.deletedAt) continue;
+    const title = (item.title ?? '').trim() || 'без названия';
+    if (section === 'deadlines' && item.visibility === 'private') {
+      missing.push({ title, reason: 'личный срок — в общую ленту не попадает' });
+      continue;
+    }
+    if (section === 'tasks' && item.status !== 'open') {
+      missing.push({ title, reason: 'дело завершено — из ленты уходит' });
+      continue;
+    }
+    if (!DATE_ONLY_RE.test(item.dueDate ?? '')) {
+      missing.push({
+        title,
+        reason:
+          section === 'deadlines'
+            ? 'без даты — календарю нечего поставить'
+            : 'без даты — в календарь не встанет',
+      });
+      continue;
+    }
+    if (!ids.has(item.id)) {
+      missing.push({ title, reason: 'ещё не опубликовано — подождите пару минут' });
+    }
+  }
+  return { published: ids.size, missing };
+}
+
 /**
  * Сохраняет настройки ленты. Конфликт записи разбирается повторным чтением (как у подписок):
  * файл пишут ещё и отправитель (отметка о публикации), поэтому гонка возможна.

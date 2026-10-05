@@ -6,9 +6,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import FeedSubscriptionSection, {
-  formatPublishedAt,
-} from '../src/features/settings/FeedSubscriptionSection';
+import FeedSubscriptionSection from '../src/features/settings/FeedSubscriptionSection';
+import { eventsWord, formatPublishedAt } from '../src/features/settings/feedFormat';
 import { db, kvSet, KV_KEYS } from '../src/data/db';
 import { auth } from '../src/data/remote/authStrategy';
 
@@ -16,6 +15,15 @@ const VAPID = {
   vapidPublicKey: 'fixture',
   feed: { owner: 'fixture-owner', repo: 'FAMILY-HUB', branch: 'feed' },
 };
+
+const FEED_ICS = [
+  'BEGIN:VCALENDAR',
+  'BEGIN:VEVENT',
+  'UID:deadline-keep@family-hub.local',
+  'SUMMARY:Family Hub · Опубликованный',
+  'END:VEVENT',
+  'END:VCALENDAR',
+].join('\r\n');
 
 const toB64 = (text: string) => btoa(text);
 const fromB64 = (text: string) =>
@@ -32,6 +40,9 @@ function stubGithub() {
     vi.fn(async (url: string, init?: RequestInit) => {
       if (String(url).includes('vapid.json')) {
         return new Response(JSON.stringify(VAPID), { status: 200 });
+      }
+      if (String(url).includes('raw.githubusercontent.com')) {
+        return new Response(FEED_ICS, { status: 200 });
       }
       const target = new URL(String(url));
       if (!target.pathname.startsWith('/repos/')) throw new Error(`неожиданный запрос ${url}`);
@@ -64,6 +75,8 @@ beforeEach(async () => {
   puts = [];
   putGate = null;
   await db.kv.clear();
+  await db.deadlines.clear();
+  await db.tasks.clear();
   await kvSet(KV_KEYS.remoteOwner, 'fixture-owner');
   await kvSet(KV_KEYS.remoteRepo, 'fixture-data');
   await kvSet(KV_KEYS.remoteBranch, 'main');
@@ -135,6 +148,17 @@ describe('лента в Настройках', () => {
     expect(screen.queryByTestId('feed-published-tasks')).toBeNull();
   });
 
+  it('число событий склоняется по-русски', () => {
+    expect([1, 2, 5, 11, 21, 22].map(eventsWord)).toEqual([
+      'событие',
+      'события',
+      'событий',
+      'событий',
+      'событие',
+      'события',
+    ]);
+  });
+
   it('время публикации переводится в Москву и не ломается на мусоре', () => {
     expect(formatPublishedAt('2026-10-05T11:15:46.000Z')).toBe('05.10, 14:15 (Москва)');
     expect(formatPublishedAt('не дата')).toBe('время неизвестно');
@@ -180,6 +204,28 @@ describe('лента в Настройках', () => {
     await waitFor(() =>
       expect(screen.getByTestId('feed-state-deadlines').textContent).toBe('выключено'),
     );
+  });
+
+  it('показывает, что в файле, и объясняет, почему запись не попала', async () => {
+    stored = {
+      sections: { deadlines: true, tasks: false },
+      slugs: { deadlines: 'a'.repeat(32), tasks: 'b'.repeat(32) },
+      previousSlugs: [],
+      publishedAt: '2026-10-05T11:48:30.000Z',
+    };
+    await db.deadlines.bulkPut([
+      { id: 'keep', title: 'Опубликованный', dueDate: '2026-10-07', visibility: 'family' },
+      { id: 'priv', title: 'Секретное', dueDate: '2026-10-08', visibility: 'private' },
+      { id: 'fresh', title: 'Только что', dueDate: '2026-10-09', visibility: 'family' },
+    ] as never);
+    render(<FeedSubscriptionSection />);
+    const check = await screen.findByTestId('feed-check-deadlines');
+    await waitFor(() => expect(check.textContent).toContain('В файле сейчас: 1 событие'));
+    expect(check.textContent).toContain('Секретное');
+    expect(check.textContent).toContain('личный срок');
+    expect(check.textContent).toContain('Ещё не опубликовано: 1');
+    // И честная подсказка про причину на стороне Google.
+    expect(check.textContent).toContain('Google');
   });
 
   it('«Сменить ссылку» выдаёт новые адреса, а прежние уходят на удаление', async () => {

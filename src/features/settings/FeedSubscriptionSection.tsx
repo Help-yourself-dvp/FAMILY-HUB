@@ -11,38 +11,26 @@
  *    видно, а звонка не будет;
  *  - у дел будильников в ленте нет: дело будит только исполнителя.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { Banner, Icon, Sheet, Skeleton, Switch } from '../../design/ui';
+import { db } from '../../data/db';
 import { copyText } from '../../shared/clipboard';
 import {
+  checkFeedSection,
   feedUrl,
+  fetchFeedIds,
   loadFeedConfig,
   readFeedState,
   rotateFeedLinks,
   setFeedSection,
+  type FeedCheck,
   type FeedConfig,
   type FeedSection,
   type FeedState,
 } from '../../data/remote/feed';
 import { describeStorageFailure } from '../../notifications/channels';
-
-/**
- * Когда лента обновлялась в последний раз. Время показываем в Москве (единый пояс семьи),
- * и только если отправитель действительно публиковал файл: иначе честнее сказать, что
- * файла ещё нет.
- */
-export function formatPublishedAt(iso: string): string {
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return 'время неизвестно';
-  const parts = new Intl.DateTimeFormat('ru-RU', {
-    timeZone: 'Europe/Moscow',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(at);
-  return `${parts} (Москва)`;
-}
+import { eventsWord, formatPublishedAt } from './feedFormat';
 
 const SECTION_INFO: Record<FeedSection, { title: string; hint: string }> = {
   deadlines: {
@@ -55,10 +43,58 @@ const SECTION_INFO: Record<FeedSection, { title: string; hint: string }> = {
   },
 };
 
+/**
+ * Итог сверки под ссылкой: сколько событий в файле и что не попало. Показываем не больше
+ * трёх названий — остальное владельцу не нужно, а длинный список ломает компактность.
+ */
+function FeedCheckLine({ check, section }: { check: FeedCheck; section: FeedSection }) {
+  const [expanded, setExpanded] = useState(false);
+  const notable = useMemo(
+    () =>
+      check.missing.filter((gap) => gap.reason !== 'ещё не опубликовано — подождите пару минут'),
+    [check.missing],
+  );
+  const pending = check.missing.length - notable.length;
+  const shown = expanded ? notable : notable.slice(0, 3);
+  return (
+    <div className="stack tiny muted" style={{ gap: 4 }} data-testid={`feed-check-${section}`}>
+      <span>
+        В файле сейчас: {check.published} {eventsWord(check.published)}
+        {check.published === 0 ? ' — пока пусто, события появятся после публикации.' : '.'}
+      </span>
+      {pending > 0 && <span>Ещё не опубликовано: {pending} — подождите пару минут.</span>}
+      {notable.length > 0 && (
+        <span>
+          Не попали: {shown.map((gap) => `«${gap.title}» — ${gap.reason}`).join('; ')}
+          {notable.length > 3 && !expanded && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost"
+                onClick={() => setExpanded(true)}
+              >
+                показать все ({notable.length})
+              </button>
+            </>
+          )}
+        </span>
+      )}
+      <span>
+        Если в календаре Google событий ещё нет — он перечитывает ленту сам (часы, иногда сутки).
+      </span>
+    </div>
+  );
+}
+
 export default function FeedSubscriptionSection() {
   const [state, setState] = useState<FeedState | null | undefined>(undefined);
   const [cfg, setCfg] = useState<FeedConfig | null>(null);
   const [busy, setBusy] = useState(false);
+  // Сверка с опубликованным файлом: сколько событий реально лежит по ссылке и что из
+  // семейных записей туда не попало. Нужна, чтобы владелец не гадал, кто виноват —
+  // приложение, публикация или календарь (Google перечитывает подписку сам, часами).
+  const [checks, setChecks] = useState<Partial<Record<FeedSection, FeedCheck | null>>>({});
   // Отдельно от общего busy: пока раздел сохраняется на GitHub (~пара секунд), рядом с его
   // переключателем должна быть подпись «включаем…/выключаем…» — иначе выглядит как зависание
   // (владелец 05.10.2026, по образцу push-блока из приёмки 0.3.3).
@@ -128,6 +164,31 @@ export default function FeedSubscriptionSection() {
         : { tone: 'ok', text: 'Ссылка скопирована — вставьте её в календарь телефона.' },
     );
   };
+
+  const localDeadlines = useLiveQuery(() => db.deadlines.toArray(), [], []);
+  const localTasks = useLiveQuery(() => db.tasks.toArray(), [], []);
+
+  // Сверяем только включённые разделы и только когда отправитель уже публиковал файл.
+  useEffect(() => {
+    if (!cfg || !state) return;
+    let cancelled = false;
+    void (async () => {
+      for (const section of ['deadlines', 'tasks'] as const) {
+        if (!state.sections[section] || state.publishedAt === null) continue;
+        const ids = await fetchFeedIds(cfg, state.slugs[section]);
+        if (cancelled) return;
+        if (ids === null) {
+          setChecks((prev) => ({ ...prev, [section]: null }));
+          continue;
+        }
+        const items = section === 'deadlines' ? localDeadlines : localTasks;
+        setChecks((prev) => ({ ...prev, [section]: checkFeedSection(section, items, ids) }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cfg, state, localDeadlines, localTasks]);
 
   const anyEnabled = state ? state.sections.deadlines || state.sections.tasks : false;
 
@@ -220,7 +281,14 @@ export default function FeedSubscriptionSection() {
                     </button>
                     {state.publishedAt === null ? (
                       <span className="tiny muted">Файл появится после ближайшего запуска</span>
+                    ) : checks[section] === undefined ? null : checks[section] === null ? (
+                      <span className="tiny muted">
+                        Проверить файл не удалось — ссылка всё равно работает.
+                      </span>
                     ) : (
+                      <FeedCheckLine check={checks[section]} section={section} />
+                    )}
+                    {state.publishedAt !== null && checks[section] === undefined && (
                       <span className="tiny muted" data-testid={`feed-published-${section}`}>
                         Обновлено: {formatPublishedAt(state.publishedAt)}
                       </span>

@@ -18,6 +18,7 @@ import {
   reminderSteps,
 } from '../scripts/feed.mjs';
 import senderSource from '../scripts/push-sender.mjs?raw';
+import { checkFeedSection, parseFeedIds } from '../src/data/remote/feed';
 import workflow from '../.github/workflows/push-sender.yml?raw';
 
 const deadline = (over: Record<string, unknown> = {}) => ({
@@ -150,6 +151,65 @@ describe('адрес ленты', () => {
       'https://raw.githubusercontent.com/o/r/feed/feed/abc.ics',
     );
     expect(feedPath('abc')).toBe('feed/abc.ics');
+  });
+});
+
+describe('сверка с опубликованным файлом (что владелец видит в приложении)', () => {
+  it('читает идентификаторы из UID и переживает перенос строк', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'BEGIN:VEVENT',
+      'UID:deadline-abc@family-hub.local',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:task-def@family-hub.local',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+    expect([...parseFeedIds(ics)].sort()).toEqual(['abc', 'def']);
+    // RFC 5545 разрешает резать длинные строки: склеенный UID обязан читаться.
+    expect([...parseFeedIds('UID:deadline-ab\r\n cd@family-hub.local')]).toEqual(['abcd']);
+  });
+
+  it('сроки: объясняет личный, без даты и «ещё не опубликовано»', () => {
+    const check = checkFeedSection(
+      'deadlines',
+      [
+        { id: 'one', title: 'Опубликован', dueDate: '2026-10-07', visibility: 'family' },
+        { id: 'priv', title: 'Личное', dueDate: '2026-10-08', visibility: 'private' },
+        { id: 'nodate', title: 'Без даты', dueDate: '', visibility: 'family' },
+        { id: 'fresh', title: 'Только что', dueDate: '2026-10-09', visibility: 'family' },
+        {
+          id: 'gone',
+          title: 'Удалённое',
+          dueDate: '2026-10-10',
+          visibility: 'family',
+          deletedAt: '2026-10-01T00:00:00.000Z',
+        },
+      ],
+      new Set(['one']),
+    );
+    expect(check.published).toBe(1);
+    // Удалённое владелец и не ждёт — в «пропажу» не попадает.
+    expect(check.missing.map((m) => m.title)).toEqual(['Личное', 'Без даты', 'Только что']);
+    expect(check.missing[0]?.reason).toMatch(/личный/u);
+    expect(check.missing[1]?.reason).toMatch(/без даты/u);
+    expect(check.missing[2]?.reason).toMatch(/подождите/u);
+  });
+
+  it('дела: завершённое и без даты объясняются отдельно', () => {
+    const check = checkFeedSection(
+      'tasks',
+      [
+        { id: 'done', title: 'Сделано', dueDate: '2026-10-07', status: 'done' },
+        { id: 'nd', title: 'Без даты', dueDate: null, status: 'open' },
+        { id: 'ok', title: 'Есть', dueDate: '2026-10-07', status: 'open' },
+      ],
+      new Set(['ok']),
+    );
+    expect(check.published).toBe(1);
+    expect(check.missing[0]?.reason).toMatch(/завершено/u);
+    expect(check.missing[1]?.reason).toMatch(/без даты/u);
   });
 });
 
