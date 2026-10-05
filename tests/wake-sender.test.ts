@@ -3,7 +3,12 @@
  * как устройство что-то записало. Сеть подменена — настоящий GitHub не вызывается.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { WAKE_MIN_INTERVAL_MS, resetWakeThrottle, wakePushSender } from '../src/data/remote/wake';
+import {
+  WAKE_MIN_INTERVAL_MS,
+  resetWakeThrottle,
+  wakeHint,
+  wakePushSender,
+} from '../src/data/remote/wake';
 import { auth } from '../src/data/remote/authStrategy';
 import { log } from '../src/shared/log';
 // Сторож: вызов обязан быть в синхронизации, иначе «будильник» никто не дёрнет.
@@ -59,7 +64,7 @@ afterEach(() => {
 describe('wakePushSender', () => {
   it('просит GitHub запустить отправителя и передаёт ветку из настроек', async () => {
     const calls = stubFetch(204);
-    await expect(wakePushSender('push')).resolves.toBe(true);
+    await expect(wakePushSender('push')).resolves.toEqual({ kind: 'sent' });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toBe(
       'https://api.github.com/repos/fixture-owner/FAMILY-HUB/actions/workflows/push-sender.yml/dispatches',
@@ -75,31 +80,39 @@ describe('wakePushSender', () => {
     await wakePushSender('push');
     expect(calls).toHaveLength(1);
     expect(WAKE_MIN_INTERVAL_MS).toBe(60_000);
+    // Проверка из настроек идёт принудительно — ограничитель ей не мешает.
+    await wakePushSender('manual', { force: true });
+    expect(calls).toHaveLength(2);
   });
 
-  it('нет права запускать проверки (403) — молчит и не мешает синхронизации', async () => {
+  it('нет права запускать проверки (403) — в журнале виден код ответа', async () => {
     const calls = stubFetch(403);
-    await expect(wakePushSender('push')).resolves.toBe(false);
+    await expect(wakePushSender('push')).resolves.toEqual({ kind: 'failed', status: 403 });
     expect(calls).toHaveLength(1);
-    // Факт попытки виден в журнале, но без токена и без содержимого данных.
+    // Факт попытки виден в журнале с кодом ответа, но без токена и данных.
     const wakeEntries = log
       .entries()
       .filter((e) => e.event.type === 'wake')
-      .map((e) => e.event as { ok: boolean; reason: string });
-    expect(wakeEntries.at(-1)).toMatchObject({ ok: false, reason: 'push' });
+      .map((e) => e.event as { ok: boolean; reason: string; status?: number | null });
+    expect(wakeEntries.at(-1)).toMatchObject({ ok: false, reason: 'push', status: 403 });
+  });
+
+  it('токен не видит публичный репозиторий (404) — тоже с кодом', async () => {
+    stubFetch(404);
+    await expect(wakePushSender('push')).resolves.toEqual({ kind: 'failed', status: 404 });
   });
 
   it('без интернета не трогает сеть', async () => {
     const calls = stubFetch(204);
     vi.stubGlobal('navigator', { onLine: false });
-    await expect(wakePushSender('push')).resolves.toBe(false);
+    await expect(wakePushSender('push')).resolves.toEqual({ kind: 'skipped', reason: 'offline' });
     expect(calls).toHaveLength(0);
   });
 
   it('без токена не отправляет запрос', async () => {
     const calls = stubFetch(204);
     vi.spyOn(auth, 'getToken').mockResolvedValue(null);
-    await expect(wakePushSender('push')).resolves.toBe(false);
+    await expect(wakePushSender('push')).resolves.toEqual({ kind: 'skipped', reason: 'token' });
     expect(calls).toHaveLength(0);
   });
 
@@ -113,7 +126,7 @@ describe('wakePushSender', () => {
         return Promise.reject(new Error('network down'));
       }),
     );
-    await expect(wakePushSender('push')).resolves.toBe(false);
+    await expect(wakePushSender('push')).resolves.toEqual({ kind: 'failed', status: null });
   });
 
   it('настройки «будильника» читаются из vapid.json (меняются без пересборки)', async () => {
@@ -130,5 +143,33 @@ describe('сторож: синхронизация действительно б
     expect(engineSource).toContain("import { wakePushSender } from '../remote/wake';");
     expect(engineSource).toMatch(/if \(pushed > 0\) \{/u);
     expect(engineSource).toContain("void wakePushSender('push');");
+  });
+});
+
+describe('wakeHint — что увидит владелец', () => {
+  it('успех объясняет, что уведомление придёт не сразу и может не прийти', () => {
+    expect(wakeHint({ kind: 'sent' })).toMatch(/пары минут/u);
+    expect(wakeHint({ kind: 'sent' })).toMatch(/нечего/u);
+  });
+
+  it('403 объясняет про право Actions и не советует сервисы Google', () => {
+    const hint = wakeHint({ kind: 'failed', status: 403 });
+    expect(hint).toMatch(/Actions/u);
+    expect(hint).not.toMatch(/Google/u);
+  });
+
+  it('404 говорит о доступе токена к публичному репозиторию', () => {
+    expect(wakeHint({ kind: 'failed', status: 404 })).toMatch(/публичный репозиторий/u);
+  });
+
+  it('неизвестный код называется честно, без выдумок', () => {
+    expect(wakeHint({ kind: 'failed', status: 500 })).toMatch(/500/u);
+    expect(wakeHint({ kind: 'failed', status: null })).toMatch(/сеть|соединение/u);
+  });
+
+  it('пропуски (офлайн, нет токена, нет настроек) объяснены простыми словами', () => {
+    expect(wakeHint({ kind: 'skipped', reason: 'offline' })).toMatch(/интернет/u);
+    expect(wakeHint({ kind: 'skipped', reason: 'token' })).toMatch(/хранилищ/u);
+    expect(wakeHint({ kind: 'skipped', reason: 'config' })).toMatch(/vapid/u);
   });
 });

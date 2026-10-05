@@ -23,6 +23,7 @@ import { GitHubError } from '../../data/remote/githubClient';
 import { Banner, Icon, Switch } from '../../design/ui';
 import { kvGet, kvSet, KV_KEYS } from '../../data/db';
 import { downloadCalendarAlarmTest, downloadCalendarTestIcs } from '../../notifications/ics';
+import { wakeHint, wakePushSender } from '../../data/remote/wake';
 import { formatRu } from '../../domain/dateOnly';
 
 export default function NotificationsSection() {
@@ -204,6 +205,36 @@ export default function NotificationsSection() {
                 }}
               />
             </div>
+          </div>
+
+          <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
+            <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'nowrap' }}>
+              <span className="badge" style={{ flex: '0 0 auto' }}>
+                push
+              </span>
+              <div className="strong grow truncate" style={{ fontSize: 'var(--fs-md)' }}>
+                Быстрый запуск уведомлений
+              </div>
+            </div>
+            <p className="small" style={{ margin: 0, lineHeight: 1.55, color: 'var(--text-2)' }}>
+              Сразу после изменений телефон просит GitHub запустить отправку — уведомление приходит
+              за пару минут, не дожидаясь расписания (оно может молчать часами). Нужен токен с
+              правом «Actions: write» на репозиторий приложения.
+            </p>
+            <button
+              type="button"
+              className="btn btn--sm btn--block"
+              onClick={() => {
+                void wakePushSender('manual', { force: true }).then((outcome) => {
+                  setNotice({
+                    tone: outcome.kind === 'sent' ? 'ok' : 'warn',
+                    text: wakeHint(outcome),
+                  });
+                });
+              }}
+            >
+              Проверить сейчас
+            </button>
           </div>
 
           {notice && (

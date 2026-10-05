@@ -102,21 +102,28 @@ export const shoppingRepo = {
     notifyLocalChange();
   },
 
-  async toggleDone(id: string): Promise<void> {
+  /**
+   * `done` можно задать явно: свёрнутая строка раздела «Куплено» возвращает в список сразу
+   * всю группу одинаковых записей (0.5.9). Без второго аргумента — прежнее переключение.
+   */
+  async toggleDone(id: string, done?: boolean): Promise<void> {
     const cur = await db.shopping.get(id);
     if (!cur || cur.deletedAt) return;
+    const want = done ?? !cur.done;
+    if (want === cur.done) return;
     const s = stamp();
     const next: ShoppingItem = {
       ...cur,
-      done: !cur.done,
-      doneAt: !cur.done ? s.updatedAt : null,
-      doneBy: !cur.done ? s.updatedBy : null,
+      done: want,
+      doneAt: want ? s.updatedAt : null,
+      doneBy: want ? s.updatedBy : null,
       rev: cur.rev + 1,
       updatedAt: s.updatedAt,
       updatedBy: s.updatedBy,
     };
     await db.shopping.put(next);
-    await appendActivity('completed', next.title, undefined, {
+    // Возврат в список пишем как «updated» — так же, как «Повторить корзину» (0.5.9).
+    await appendActivity(want ? 'completed' : 'updated', next.title, undefined, {
       kind: 'shopping',
       place: placeLabel('shopping', next.category),
     });
