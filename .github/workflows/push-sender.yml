@@ -10,8 +10,12 @@ name: Push reminders
 # Main этим патчем не меняется.
 on:
   schedule:
-    # Сохраняем интервал 30 минут, но уходим с нагруженных 00/30.
-    - cron: '17,47 * * * *'
+    # 0.6.0: каждые 5 минут — минимальный разрешённый интервал GitHub. Замер 03–05.10.2026
+    # показал, что при `*/30` цикл фактически запускался 4–6 раз в СУТКИ, поэтому «точное
+    # время» недостижимо: чем чаще просим, тем больше шансов попасть в нужный час.
+    # Дубли исключены маркерами (напоминание уходит один раз), дайджест покупок сам
+    # держит паузу 30 минут, в публичном репозитории минуты Actions бесплатны.
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -30,6 +34,11 @@ jobs:
   send:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Лента публикуется в ветку `feed` этого же публичного репозитория встроенным токеном:
+    # отдельные секреты и права владельца не нужны. Пуш сделан GITHUB_TOKEN, поэтому
+    # другие workflow (CI, Pages) на него не запускаются.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -42,5 +51,6 @@ jobs:
         env:
           FAMILY_REPO_TOKEN: ${{ secrets.FAMILY_REPO_TOKEN }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          PUBLIC_REPO_TOKEN: ${{ github.token }}
           FH_PUSH_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'reminders' }}
         run: node scripts/push-sender.mjs

@@ -30,6 +30,7 @@ import { randomUUID } from 'node:crypto';
 import { sendPushTest } from './push-test.mjs';
 import { sendTaskPush } from './task-push.mjs';
 import { deadlineRows, entityRows } from './push-sender-data.mjs';
+import { buildFeedIcs, feedPath } from './feed.mjs';
 import {
   SHOPPING_FIRST_WINDOW_MS,
   digestAllowed,
@@ -68,6 +69,160 @@ async function gh(path, init = {}) {
     },
   });
   return res;
+}
+
+/**
+ * Настройки ленты (подписки) из семейного хранилища (0.6.0). Пишет их приложение, когда
+ * человек включает разделы в Настройках. Нет файла — лента не публикуется вообще.
+ */
+async function loadFeedSettings() {
+  const doc = await getJsonFile('data/feed.json');
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null;
+  const sections = doc.sections && typeof doc.sections === 'object' ? doc.sections : {};
+  const slugs = doc.slugs && typeof doc.slugs === 'object' ? doc.slugs : {};
+  const ok = (v) => typeof v === 'string' && /^[a-f0-9]{16,64}$/u.test(v);
+  if (!ok(slugs.deadlines) || !ok(slugs.tasks)) return null;
+  return {
+    sections: { deadlines: sections.deadlines === true, tasks: sections.tasks === true },
+    slugs: { deadlines: slugs.deadlines, tasks: slugs.tasks },
+    previousSlugs: Array.isArray(doc.previousSlugs) ? doc.previousSlugs.filter(ok) : [],
+  };
+}
+
+/**
+ * Публикация ленты в ПУБЛИЧНЫЙ репозиторий приложения, в отдельную ветку `feed`
+ * (чтобы календари могли читать файл без входа в аккаунт). Используем встроенный
+ * GITHUB_TOKEN с правом contents: write — тех же прав, что у токена владельца, не нужно.
+ * Никаких других workflow это не запускает (особенность GITHUB_TOKEN).
+ */
+async function publishFeed({ section, slug, content, publicToken, publicRepo }) {
+  const api = `https://api.github.com/repos/${publicRepo}`;
+  const call = (path, init = {}) =>
+    fetch(`${api}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${publicToken}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'family-hub-push-sender',
+        ...(init.headers || {}),
+      },
+    });
+
+  const branch = 'feed';
+  const ref = await call(`/git/ref/heads/${branch}`);
+  if (ref.status === 404) {
+    const mainRef = await call('/git/ref/heads/main');
+    if (!mainRef.ok) throw new Error(`feed: ветка feed недоступна (HTTP ${mainRef.status})`);
+    const sha = (await mainRef.json()).object.sha;
+    const created = await call('/git/refs', {
+      method: 'POST',
+      body: JSON.stringify({ ref: 'refs/heads/feed', sha }),
+    });
+    // Гонка с самим собой на следующем запуске — не ошибка.
+    if (!created.ok && created.status !== 422) {
+      throw new Error(`feed: не удалось создать ветку (HTTP ${created.status})`);
+    }
+  } else if (!ref.ok) {
+    throw new Error(`feed: не удалось прочитать ветку (HTTP ${ref.status})`);
+  }
+
+  const path = feedPath(slug);
+  const cur = await call(`/contents/${path}?ref=${branch}`);
+  const sha = cur.ok ? (await cur.json()).sha : undefined;
+  const put = await call(`/contents/${path}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      message: `feed: обновить ленту «${section}»`,
+      content: Buffer.from(content, 'utf-8').toString('base64'),
+      branch,
+      ...(sha ? { sha } : {}),
+    }),
+  });
+  if (!put.ok) throw new Error(`feed: публикация не удалась (HTTP ${put.status})`);
+}
+
+/** Удаление старых файлов после смены ссылки: старое должно перестать работать. */
+async function deleteFeedFile({ slug, publicToken, publicRepo }) {
+  const api = `https://api.github.com/repos/${publicRepo}`;
+  const path = feedPath(slug);
+  const cur = await fetch(`${api}/contents/${path}?ref=feed`, {
+    headers: {
+      Authorization: `Bearer ${publicToken}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'family-hub-push-sender',
+    },
+  });
+  if (cur.status === 404) return true;
+  if (!cur.ok) return false;
+  const sha = (await cur.json()).sha;
+  const del = await fetch(`${api}/contents/${path}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${publicToken}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'family-hub-push-sender',
+    },
+    body: JSON.stringify({
+      message: 'feed: старая ссылка больше не работает',
+      sha,
+      branch: 'feed',
+    }),
+  });
+  return del.ok;
+}
+
+/**
+ * Полный цикл по ленте: собрать включённые разделы, опубликовать, убрать старые ссылки и
+ * записать в семейное хранилище отметку о публикации (её показывает приложение).
+ */
+async function publishFeeds({ deadlines, tasks, log: emit }) {
+  const settings = await loadFeedSettings();
+  if (!settings) {
+    emit('feed: лента не включена — публиковать нечего');
+    return;
+  }
+  const publicRepo = process.env.GITHUB_REPOSITORY || '';
+  const publicToken = process.env.PUBLIC_REPO_TOKEN || '';
+  if (!publicRepo || !publicToken) {
+    annotation('warning', 'Лента: нет доступа к публичному репозиторию — публикация пропущена.');
+    return;
+  }
+
+  let published = 0;
+  for (const section of ['deadlines', 'tasks']) {
+    const slug = settings.slugs[section];
+    // Выключенный раздел публикуем пустым: подписка очистится, а не останется со старым.
+    const content = buildFeedIcs({ section, deadlines, tasks });
+    try {
+      await publishFeed({ section, slug, content, publicToken, publicRepo });
+      published += 1;
+    } catch (e) {
+      annotation('warning', `Лента (${section}): публикация не удалась (${e?.message || 'сбой'}).`);
+    }
+  }
+
+  let removed = 0;
+  for (const old of settings.previousSlugs) {
+    if (old === settings.slugs.deadlines || old === settings.slugs.tasks) continue;
+    if (await deleteFeedFile({ slug: old, publicToken, publicRepo })) removed += 1;
+  }
+  await putJsonFile(
+    'data/feed.json',
+    {
+      sections: settings.sections,
+      slugs: settings.slugs,
+      previousSlugs: [],
+      publishedAt: new Date().toISOString(),
+    },
+    'feed: лента опубликована',
+  );
+  annotation(
+    'notice',
+    `Лента: разделы ${settings.sections.deadlines ? 'сроки' : ''}${
+      settings.sections.deadlines && settings.sections.tasks ? ' + ' : ''
+    }${settings.sections.tasks ? 'дела' : ''}, файлов опубликовано ${published}, старых ссылок удалено ${removed}.`,
+  );
 }
 
 async function getJsonFile(path) {
@@ -358,6 +513,14 @@ async function main() {
     failed > 0 ? 'warning' : 'notice',
     `Цикл завершён: отправлено ${sent}, пропущено по маркерам ${skipped}, подписок ${subs.length}, ошибок доставки ${failed}.`,
   );
+
+  // Лента (подписка): собирается всегда, когда её включила семья — независимо от того,
+  // есть ли подписки на push: это отдельный канал.
+  try {
+    await publishFeeds({ deadlines, tasks, log });
+  } catch (e) {
+    annotation('warning', `Лента: цикл не завершён (${e?.message || 'сбой'}).`);
+  }
 }
 
 main().catch((e) => {

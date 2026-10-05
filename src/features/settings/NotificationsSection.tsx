@@ -24,6 +24,7 @@ import { Banner, Icon, Switch } from '../../design/ui';
 import { kvGet, kvSet, KV_KEYS } from '../../data/db';
 import { downloadCalendarAlarmTest, downloadCalendarTestIcs } from '../../notifications/ics';
 import { wakeHint, wakePushSender } from '../../data/remote/wake';
+import FeedSubscriptionSection from './FeedSubscriptionSection';
 import { formatRu } from '../../domain/dateOnly';
 
 export default function NotificationsSection() {
@@ -206,6 +207,8 @@ export default function NotificationsSection() {
               />
             </div>
           </div>
+
+          <FeedSubscriptionSection />
 
           <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
             <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'nowrap' }}>
