@@ -62,6 +62,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Снимаем возможный отложенный повтор: иначе он выстрелит уже без подмены fetch.
+  resetWakeThrottle();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -128,6 +130,29 @@ describe('wakePushSender', () => {
   it('токен не видит публичный репозиторий (404) — тоже с кодом', async () => {
     stubFetch(404);
     await expect(wakePushSender('push')).resolves.toEqual({ kind: 'failed', status: 404 });
+  });
+
+  it('просьба в пределах минуты не теряется: повтор уходит сам после окна', async () => {
+    vi.useFakeTimers();
+    try {
+      const calls = stubFetch(204);
+      await expect(wakePushSender('push')).resolves.toEqual({ kind: 'sent' });
+      expect(calls).toHaveLength(1);
+
+      // Вторая правка сразу после первой: сейчас пропуск, но повтор запланирован.
+      await expect(wakePushSender('push')).resolves.toEqual({
+        kind: 'skipped',
+        reason: 'throttle',
+      });
+      expect(calls).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(WAKE_MIN_INTERVAL_MS + 1200);
+      expect(calls).toHaveLength(2);
+      expect(calls[1]?.body).toBe(JSON.stringify({ ref: 'arena/01a0fbcb-family-hub' }));
+    } finally {
+      resetWakeThrottle();
+      vi.useRealTimers();
+    }
   });
 
   it('без интернета не трогает сеть', async () => {

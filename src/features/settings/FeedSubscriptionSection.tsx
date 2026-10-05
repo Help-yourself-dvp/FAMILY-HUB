@@ -30,6 +30,7 @@ import {
   type FeedState,
 } from '../../data/remote/feed';
 import { describeStorageFailure } from '../../notifications/channels';
+import { wakeHint, wakePushSender } from '../../data/remote/wake';
 import { eventsWord, formatPublishedAt } from './feedFormat';
 
 const SECTION_INFO: Record<FeedSection, { title: string; hint: string }> = {
@@ -91,6 +92,11 @@ export default function FeedSubscriptionSection() {
   const [state, setState] = useState<FeedState | null | undefined>(undefined);
   const [cfg, setCfg] = useState<FeedConfig | null>(null);
   const [busy, setBusy] = useState(false);
+  // «Обновить ленту сейчас»: просим GitHub запустить отправителя, не дожидаясь расписания
+  // (оно берёт код из main и до переноса ленту не публикует). После запуска сами
+  // перечитываем файл, чтобы владелец увидел результат, не заходя в GitHub.
+  const [wakeBusy, setWakeBusy] = useState(false);
+  const [checkTick, setCheckTick] = useState(0);
   // Сверка с опубликованным файлом: сколько событий реально лежит по ссылке и что из
   // семейных записей туда не попало. Нужна, чтобы владелец не гадал, кто виноват —
   // приложение, публикация или календарь (Google перечитывает подписку сам, часами).
@@ -136,6 +142,23 @@ export default function FeedSubscriptionSection() {
     } finally {
       setBusySection(null);
       setBusy(false);
+    }
+  };
+
+  const publishNow = async () => {
+    setWakeBusy(true);
+    setNotice(null);
+    const outcome = await wakePushSender('feed', { force: true });
+    setWakeBusy(false);
+    if (outcome.kind === 'sent') {
+      setNotice({
+        tone: 'ok',
+        text: 'Запуск принят. Через 1–2 минуты лента обновится — перечитаю файл автоматически.',
+      });
+      // Перечитываем файл после публикации: не сразу, а когда отправитель успеет отработать.
+      window.setTimeout(() => setCheckTick((n) => n + 1), 90_000);
+    } else {
+      setNotice({ tone: 'warn', text: wakeHint(outcome) });
     }
   };
 
@@ -188,7 +211,7 @@ export default function FeedSubscriptionSection() {
     return () => {
       cancelled = true;
     };
-  }, [cfg, state, localDeadlines, localTasks]);
+  }, [cfg, state, localDeadlines, localTasks, checkTick]);
 
   const anyEnabled = state ? state.sections.deadlines || state.sections.tasks : false;
 
@@ -307,6 +330,22 @@ export default function FeedSubscriptionSection() {
               onClick={() => void rotate()}
             >
               Сменить ссылку
+            </button>
+            <button
+              type="button"
+              className="btn btn--sm btn--ghost"
+              disabled={wakeBusy}
+              onClick={() => void publishNow()}
+            >
+              {wakeBusy ? 'просим запуск…' : 'Обновить ленту сейчас'}
+            </button>
+            <button
+              type="button"
+              className="btn btn--sm btn--ghost"
+              disabled={!anyEnabled}
+              onClick={() => setCheckTick((n) => n + 1)}
+            >
+              Перечитать файл
             </button>
             <button
               type="button"

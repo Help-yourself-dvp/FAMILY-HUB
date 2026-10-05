@@ -14,6 +14,12 @@ import { auth } from '../src/data/remote/authStrategy';
 const VAPID = {
   vapidPublicKey: 'fixture',
   feed: { owner: 'fixture-owner', repo: 'FAMILY-HUB', branch: 'feed' },
+  pushWake: {
+    owner: 'fixture-owner',
+    repo: 'FAMILY-HUB',
+    workflow: 'push-sender.yml',
+    ref: 'arena/01a0fbcb-family-hub',
+  },
 };
 
 const FEED_ICS = [
@@ -31,6 +37,8 @@ const fromB64 = (text: string) =>
 
 let stored: Record<string, unknown> | null = null;
 let puts: string[] = [];
+/** Запуски отправителя, о которых просило приложение (POST .../dispatches). */
+let dispatches: string[] = [];
 /** Задержка сохранения: позволяет увидеть подпись «включаем…» в момент записи. */
 let putGate: Promise<void> | null = null;
 
@@ -46,6 +54,10 @@ function stubGithub() {
       }
       const target = new URL(String(url));
       if (!target.pathname.startsWith('/repos/')) throw new Error(`неожиданный запрос ${url}`);
+      if (target.pathname.endsWith('/dispatches')) {
+        dispatches.push(String(url));
+        return new Response(null, { status: 204 });
+      }
       if (init?.method === 'PUT') {
         const body = JSON.parse(typeof init.body === 'string' ? init.body : '') as {
           content: string;
@@ -73,6 +85,7 @@ function stubGithub() {
 beforeEach(async () => {
   stored = null;
   puts = [];
+  dispatches = [];
   putGate = null;
   await db.kv.clear();
   await db.deadlines.clear();
@@ -226,6 +239,36 @@ describe('лента в Настройках', () => {
     expect(check.textContent).toContain('Ещё не опубликовано: 1');
     // И честная подсказка про причину на стороне Google.
     expect(check.textContent).toContain('Google');
+  });
+
+  it('«Обновить ленту сейчас» просит GitHub запустить отправителя и обещает перечитать файл', async () => {
+    stored = {
+      sections: { deadlines: true, tasks: false },
+      slugs: { deadlines: 'a'.repeat(32), tasks: 'b'.repeat(32) },
+      previousSlugs: [],
+      publishedAt: '2026-10-05T11:48:30.000Z',
+    };
+    render(<FeedSubscriptionSection />);
+    await screen.findByTestId('feed-url-deadlines');
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить ленту сейчас' }));
+    await waitFor(() => expect(dispatches).toHaveLength(1));
+    expect(dispatches[0]).toContain('/actions/workflows/push-sender.yml/dispatches');
+    expect(await screen.findByText(/1–2 минуты/u)).toBeTruthy();
+  });
+
+  it('«Перечитать файл» обновляет сверку без новых правок', async () => {
+    stored = {
+      sections: { deadlines: true, tasks: false },
+      slugs: { deadlines: 'a'.repeat(32), tasks: 'b'.repeat(32) },
+      previousSlugs: [],
+      publishedAt: '2026-10-05T11:48:30.000Z',
+    };
+    render(<FeedSubscriptionSection />);
+    await screen.findByTestId('feed-check-deadlines');
+    await userEvent.click(screen.getByRole('button', { name: 'Перечитать файл' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-check-deadlines').textContent).toContain('В файле сейчас'),
+    );
   });
 
   it('«Сменить ссылку» выдаёт новые адреса, а прежние уходят на удаление', async () => {

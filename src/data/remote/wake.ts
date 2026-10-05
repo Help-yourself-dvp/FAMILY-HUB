@@ -42,10 +42,16 @@ export type WakeOutcome =
   | { kind: 'skipped'; reason: 'offline' | 'token' | 'config' | 'throttle' };
 
 let lastWakeAt = 0;
+/** Отложенная повторная просьба: срабатывает, когда окно ограничителя истечёт. */
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** Только для тестов: сбрасывает ограничение частоты между проверками. */
+/** Только для тестов: сбрасывает ограничение частоты и снимает отложенный повтор. */
 export function resetWakeThrottle(): void {
   lastWakeAt = 0;
+  if (retryTimer !== null) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
 }
 
 async function loadWakeConfig(): Promise<WakeConfig | null> {
@@ -99,6 +105,17 @@ export async function wakePushSender(
       return { kind: 'skipped', reason: 'offline' };
     }
     if (!options.force && Date.now() - lastWakeAt < WAKE_MIN_INTERVAL_MS) {
+      // Ограничитель защищает GitHub от потока просьб, но не должен ТЕРЯТЬ просьбу: правка,
+      // сделанная сразу после предыдущей, иначе осталась бы неопубликованной до следующего
+      // действия (а без переноса в main расписание её не подберёт — оно берёт код из main).
+      // Поэтому один раз планируем повтор, когда окно истечёт.
+      if (retryTimer === null && typeof setTimeout === 'function') {
+        const wait = WAKE_MIN_INTERVAL_MS - (Date.now() - lastWakeAt) + 1000;
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          void wakePushSender(reason, { force: true });
+        }, wait);
+      }
       return { kind: 'skipped', reason: 'throttle' };
     }
     const cfg = await loadWakeConfig();
