@@ -16,7 +16,12 @@ export type SyncLogEvent =
   | { type: 'auth:changed'; present: boolean }
   | { type: 'app:installed' }
   | { type: 'app:update-available' }
-  | { type: 'push:step'; step: string };
+  | { type: 'push:step'; step: string }
+  /**
+   * «Будильник» отправителя. status — код ответа GitHub (403 — нет права, 404 — токен не
+   * видит репозиторий), skipped — почему даже не пробовали. Данные не передаются.
+   */
+  | { type: 'wake'; ok: boolean; reason: string; status?: number | null; skipped?: string };
 
 const MAX_ENTRIES = 200;
 const ring: Array<{ at: string; event: SyncLogEvent }> = [];

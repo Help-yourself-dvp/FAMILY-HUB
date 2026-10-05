@@ -10,6 +10,7 @@ import { shoppingRepo, type NewShoppingInput } from '../../data/repositories';
 import { canonicalKey, parseItem } from '../../domain/normalize';
 import { formatQty } from '../../domain/quantity';
 import { HORIZONS, HORIZON_LABEL, type Horizon, type ShoppingItem } from '../../domain/types';
+import { groupDoneItems, type DoneGroup } from '../../domain/shoppingDone';
 import { Banner, EmptyState, Field, Icon, Sheet, Skeleton, Switch } from '../../design/ui';
 import { useSyncState } from '../../app/hooks';
 
@@ -51,7 +52,6 @@ export default function ShoppingScreen({
     if (!items) return null;
     const live = items.filter((i) => !i.deletedAt);
     const active = live.filter((i) => !i.done);
-    const done = live.filter((i) => i.done);
     const byHorizon = new Map<Horizon, ShoppingItem[]>();
     for (const h of HORIZONS) byHorizon.set(h, []);
     for (const i of active) byHorizon.get(i.horizon)?.push(i);
@@ -70,14 +70,17 @@ export default function ShoppingScreen({
       list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     for (const list of byCategory.values())
       list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    done.sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''));
+    // «Куплено» группируем по товару и единице (0.5.9): две «Молоко» — одна строка с
+    // пометкой «×2», которая раскрывается в отдельные записи. Данные не переписываем.
+    const done = groupDoneItems(live);
     return {
       byHorizon,
       byCategory,
       categoryNames,
       done,
       activeCount: active.length,
-      doneCount: done.length,
+      // Счётчик — число записей, а не строк: «Куплено · 5» при четырёх строках честно.
+      doneCount: live.filter((i) => i.done).length,
     };
   }, [items]);
 
@@ -226,11 +229,11 @@ export default function ShoppingScreen({
           </div>
           {showDone && (
             <div className="stack">
-              {groups.done.map((item) => (
-                <ShoppingRow
-                  key={item.id}
-                  item={item}
-                  author={members?.find((m) => m.id === item.updatedBy)}
+              {groups.done.map((group) => (
+                <DoneGroupRow
+                  key={group.item.id}
+                  group={group}
+                  members={members ?? []}
                   onEdit={setEditing}
                 />
               ))}
@@ -311,6 +314,107 @@ function ShoppingRow({
       >
         <Icon name="trash" size={20} />
       </button>
+    </div>
+  );
+}
+
+/**
+ * Строка раздела «Куплено» (0.5.9). Обычная запись выглядит как раньше; одинаковые записи
+ * одного товара с одной единицей — одна строка с пометкой «×N», которая раскрывается в
+ * отдельные записи с их обычными действиями (правка, удаление). Данные не переписываются.
+ */
+function DoneGroupRow({
+  group,
+  members,
+  onEdit,
+}: {
+  group: DoneGroup;
+  members: Array<{ id: string; name: string; color: string }>;
+  onEdit: (item: ShoppingItem) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const newest = group.item;
+  const author = members.find((m) => m.id === newest.updatedBy);
+  const meta = [
+    group.count > 1 && group.qty !== null
+      ? `${formatQty(group.qty)}${group.unit ? ` ${group.unit}` : ''}`
+      : null,
+    newest.category,
+    newest.store,
+    newest.note === 'демо' ? 'демо' : newest.note,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  if (group.count === 1) {
+    return <ShoppingRow item={newest} author={author} onEdit={onEdit} />;
+  }
+
+  return (
+    <div className="stack" style={{ gap: 4 }}>
+      <div className="item item--done">
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked
+          aria-label={`Вернуть в список «${newest.title}» — все ${group.count} записи`}
+          className="checkbox"
+          onClick={() =>
+            void Promise.all(group.items.map((i) => shoppingRepo.toggleDone(i.id, false)))
+          }
+        />
+        <button
+          type="button"
+          className="grow item-hit"
+          aria-label={
+            open
+              ? `Свернуть записи «${newest.title}»`
+              : `Показать все записи «${newest.title}» — ${group.count}`
+          }
+          onClick={() => setOpen((v) => !v)}
+        >
+          <div className="row" style={{ gap: 6, minWidth: 0 }}>
+            {author && (
+              <span
+                className="dot"
+                style={{ color: author.color, flex: '0 0 auto' }}
+                title={`Последнее изменение: ${author.name}`}
+              />
+            )}
+            <div className="item-title">{newest.title}</div>
+            <span className="badge" style={{ flex: '0 0 auto' }}>
+              ×{group.count}
+            </span>
+          </div>
+          {meta && <div className="item-meta">{meta}</div>}
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label={open ? `Свернуть «${newest.title}»` : `Развернуть «${newest.title}»`}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span
+            style={{
+              display: 'inline-flex',
+              transform: open ? 'rotate(180deg)' : undefined,
+              transition: 'transform 200ms',
+            }}
+          >
+            <Icon name="chevron" size={18} />
+          </span>
+        </button>
+      </div>
+      {open &&
+        group.items.map((item) => (
+          <div key={item.id} style={{ marginLeft: 14 }}>
+            <ShoppingRow
+              item={item}
+              author={members.find((m) => m.id === item.updatedBy)}
+              onEdit={onEdit}
+            />
+          </div>
+        ))}
     </div>
   );
 }

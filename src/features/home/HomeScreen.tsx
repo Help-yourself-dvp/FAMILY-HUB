@@ -12,6 +12,7 @@ import { HORIZON_LABEL, type Horizon } from '../../domain/types';
 import { Banner, Icon, Skeleton, Stat } from '../../design/ui';
 import { useSyncState } from '../../app/hooks';
 import { PHASE_LABEL } from '../../data/sync/state';
+import { homeTaskList, taskDateLabel } from '../../domain/taskRules';
 
 export default function HomeScreen({ ready }: { ready: boolean }) {
   const items = useLiveQuery(() => db.shopping.toArray(), [], undefined);
@@ -21,6 +22,8 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
     undefined,
   );
   const members = useLiveQuery(() => db.members.toArray(), [], undefined);
+  const tasks = useLiveQuery(() => db.tasks.toArray(), [], undefined);
+  const nearbyTasks = useMemo(() => homeTaskList(tasks ?? []), [tasks]);
   const deadlines = useLiveQuery(
     () => db.deadlines.filter((d) => !d.deletedAt && d.visibility === 'family').toArray(),
     [],
@@ -137,8 +140,45 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
           </div>
         ) : (
           <div className="small muted">
-            Сроќв пока нет. Добавьте первый в разделе «Сроки» — напоминания придут сами.
+            Сроков пока нет. Добавьте первый в разделе «Сроки» — напоминания придут сами.
           </div>
+        )}
+      </section>
+
+      <section className="stack" aria-label="Ближайшие дела">
+        <div className="row row--between">
+          <h2 className="section-title">Ближайшие дела</h2>
+          <Link to="/tasks" className="btn btn--sm btn--ghost">
+            Все дела
+          </Link>
+        </div>
+        {nearbyTasks.length ? (
+          <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
+            {nearbyTasks.map((task) => (
+              <Link
+                key={task.id}
+                to="/tasks"
+                className="row"
+                style={{ color: 'inherit', textDecoration: 'none', gap: 'var(--sp-3)' }}
+              >
+                <div className="grow">
+                  <div className="small" style={{ overflowWrap: 'anywhere' }}>
+                    {task.title}
+                  </div>
+                  <div className="tiny muted">{taskDateLabel(task.dueDate)}</div>
+                  <div className="tiny muted">
+                    {task.assigneeId
+                      ? members?.find((member) => member.id === task.assigneeId)?.name ||
+                        'Участник недоступен'
+                      : 'Без исполнителя'}
+                  </div>
+                </div>
+                <Icon name="check" size={18} />
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="small muted">Открытых дел пока нет.</div>
         )}
       </section>
 
@@ -156,7 +196,7 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
               <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
                 {activity.map((a) => (
                   <div key={a.id} className="row" style={{ gap: 'var(--sp-3)' }}>
-                    <span className="badge badge--accent">{actionLabel(a.action)}</span>
+                    <span className="badge badge--accent">{actionLabel(a.action, a.kind)}</span>
                     <div className="grow">
                       {a.place && (
                         <div className="tiny" style={{ color: 'var(--accent)', marginBottom: 2 }}>
@@ -190,9 +230,10 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
       <div className="card">
         <div className="card-title">Дела и сроки</div>
         <div className="small muted" style={{ marginTop: 'var(--sp-3)' }}>
-          «Сроки» уже работают: документы, ТО, дни рождения — с напоминаниями.{' '}
-          <Link to="/deadlines">Открыть сроки</Link>. Модуль «Дела» (кто что обещал сделать) — в
-          разработке.
+          «Сроки»: документы, ТО, дни рождения — с напоминаниями и добавлением события в календарь
+          телефона. <Link to="/deadlines">Открыть сроки</Link>. «Дела» — общий список с
+          исполнителем, необязательным сроком и отметкой выполнения; уведомление о деле получает его
+          исполнитель. <Link to="/tasks">Открыть дела</Link>.
         </div>
       </div>
     </div>
@@ -202,14 +243,14 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
 /* Заголовок и вход в настройки вынесены в верхнюю панель и нижнюю навигацию
    (приёмка 0.1.5: два входа в настройки и съедаемая строка заголовка). */
 
-function actionLabel(a: string): string {
+function actionLabel(a: string, kind: string): string {
   switch (a) {
     case 'created':
       return 'добавлено';
     case 'updated':
       return 'изменено';
     case 'completed':
-      return 'куплено';
+      return kind === 'tasks' ? 'выполнено' : 'куплено';
     case 'deleted':
       return 'удалено';
     default:

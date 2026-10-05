@@ -12,7 +12,7 @@ import { flushNow } from '../data/sync/engine';
 import { ErrorBoundary } from './ErrorBoundary';
 import HomeScreen from '../features/home/HomeScreen';
 import ShoppingScreen from '../features/shopping/ShoppingScreen';
-import TasksScreen from '../features/tasks/PlaceholderScreen';
+import TasksScreen from '../features/tasks/TasksScreen';
 import DeadlinesScreen from '../features/deadlines/DeadlinesScreen';
 import SettingsScreen from '../features/settings/SettingsScreen';
 
@@ -39,6 +39,20 @@ export default function App({
 
 function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: string | null }) {
   const loc = useLocation();
+  const navigate = useNavigate();
+  const composeIntent = (loc.state as { compose?: boolean } | null)?.compose === true;
+
+  // Запрос «открыть форму создания» из круглого «+» — одноразовый. Он лежит в состоянии
+  // записи истории, а оно переживает перезагрузку страницы: свайп вниз на телефоне
+  // перезагружает приложение, и форма открывалась заново при каждом обновлении, пока
+  // пользователь не уходил в другой раздел. Гасим запрос сразу после того, как экран его
+  // прочитал (эффект выполняется после отрисовки, поэтому форма успевает открыться),
+  // и заодно заменяем запись истории, а не добавляем новую — «назад» работает как раньше.
+  useEffect(() => {
+    if (!composeIntent) return;
+    void navigate(`${loc.pathname}${loc.search}`, { replace: true });
+  }, [composeIntent, loc.pathname, loc.search, navigate]);
+
   return (
     <>
       <ErrorBoundary>
@@ -53,17 +67,28 @@ function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: strin
               element={
                 <ShoppingScreen
                   ready={ready}
-                  composeKey={
-                    loc.pathname === '/shopping' &&
-                    (loc.state as { compose?: boolean } | null)?.compose === true
-                      ? loc.key
-                      : null
-                  }
+                  composeKey={loc.pathname === '/shopping' && composeIntent ? loc.key : null}
                 />
               }
             />
-            <Route path="/tasks" element={<TasksScreen />} />
-            <Route path="/deadlines" element={<DeadlinesScreen ready={ready} />} />
+            <Route
+              path="/tasks"
+              element={
+                <TasksScreen
+                  ready={ready}
+                  composeKey={loc.pathname === '/tasks' && composeIntent ? loc.key : null}
+                />
+              }
+            />
+            <Route
+              path="/deadlines"
+              element={
+                <DeadlinesScreen
+                  ready={ready}
+                  composeKey={loc.pathname === '/deadlines' && composeIntent ? loc.key : null}
+                />
+              }
+            />
             <Route path="/settings" element={<SettingsScreen ready={ready} />} />
             <Route path="*" element={<HomeScreen ready={ready} />} />
           </Routes>
@@ -143,9 +168,8 @@ function QuickAddFab() {
           >
             <Icon name="cart" size={20} /> Добавить покупку
           </button>
-          <button type="button" className="btn btn--block" onClick={() => go('/tasks')} disabled>
+          <button type="button" className="btn btn--block" onClick={() => go('/tasks')}>
             <Icon name="check" size={20} /> Добавить дело
-            <span className="badge">в разработке</span>
           </button>
           <button type="button" className="btn btn--block" onClick={() => go('/deadlines')}>
             <Icon name="calendar" size={20} /> Добавить срок
@@ -211,7 +235,8 @@ const HELP_TEXTS: Record<string, string> = {
   '/': 'Главный экран: счётчики, ближайшие сроки и семейная лента — кто что добавил, купил или изменил.',
   '/shopping':
     'Общий список покупок семьи: добавили на своём телефоне — появилось у всех, отметили купленным — пропало у всех. Работает без интернета — список дождётся сети и синхронизируется сам.',
-  '/tasks': 'Дела — кто что обещал сделать, со сроком и статусом. Модуль в разработке.',
+  '/tasks':
+    'Общие дела семьи: что сделать, кто исполнит, необязательный срок и отметка выполнения. Можно исправить, удалить или вернуть в работу. Работает офлайн и синхронизируется; уведомление о деле получает его исполнитель.',
   '/deadlines':
     'Сроки: документы, ТО, страховки, дни рождения — всё, у чего есть дата. Приложение напомнит заранее, а цвет рамки показывает срочность; правила цвета настраиваются в форме срока.',
   '/settings':

@@ -111,6 +111,10 @@ export interface Task extends Syncable {
   title: string;
   note: string | null;
   assigneeId: string | null;
+  /** Идентификатор именно назначения; обычная правка не генерирует новый push. */
+  assignmentId?: string | null;
+  assignedAt?: string | null;
+  assignedBy?: string | null;
   dueDate: DateOnly | null;
   status: TaskStatus;
   doneAt: string | null;

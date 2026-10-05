@@ -5,14 +5,23 @@
  * Минимум осознанно: название, тип, дата, ступени напоминаний. Повторения,
  * история замен и приватность — следующие куски ЭТАПА 6.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../../data/db';
+import { db, kvGet, kvSet, KV_KEYS } from '../../data/db';
 import { deadlinesRepo } from '../../data/repositories';
 import { daysUntil, formatRu, humanizeDelta, isDateOnly, parseRuDate } from '../../domain/dateOnly';
 import type { Deadline, DeadlineKind } from '../../domain/types';
 import { Banner, Field, Icon, Sheet, Skeleton } from '../../design/ui';
-import { downloadIcs } from '../../notifications/ics';
+import {
+  calendarAddTarget,
+  calendarExportSummary,
+  downloadIcs,
+  downloadSingleDeadlineIcs,
+  isAndroidClient,
+  downloadSingleDeadlineDraftIcs,
+  isIosClient,
+  type IcsDownloadResult,
+} from '../../notifications/ics';
 import {
   deadlineTone,
   KIND_THRESHOLDS,
@@ -38,11 +47,50 @@ const REMINDER_STEPS: Array<{ days: number; label: string }> = [
   { days: 0, label: 'в день срока' },
 ];
 
-export default function DeadlinesScreen({ ready }: { ready: boolean }) {
+export default function DeadlinesScreen({
+  ready,
+  composeKey = null,
+}: {
+  ready: boolean;
+  /** Одноразовый запрос из круглого +, как в Покупках; сохраняется до готовности экрана. */
+  composeKey?: string | null;
+}) {
   const rows = useLiveQuery(() => db.deadlines.toArray(), [], undefined);
   const sync = useSyncState();
+  // На iPhone/iPad календарь Apple сайт открыть не может (только файлом .ics),
+  // а Google-формы там обычно нет — окно после сохранения ведёт к файлу.
+  const ios = isIosClient();
+  const android = isAndroidClient();
+  // Честная подпись: что именно произойдёт после нажатия. Скрыть системный шаг нельзя —
+  // календарь всегда спрашивает подтверждение сам.
+  const calendarHelp = android
+    ? 'Файл скачается. Нажмите «Открыть» в плашке загрузки (или откройте «Загрузки») — календарь покажет окно события: выберите календарь и нажмите «Сохранить».'
+    : 'Файл скачается — откройте его, чтобы добавить событие в календарь.';
+
   const [editing, setEditing] = useState<Deadline | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [seenComposeKey, setSeenComposeKey] = useState<string | null>(null);
+  if (composeKey && composeKey !== seenComposeKey) {
+    setSeenComposeKey(composeKey);
+    setComposeOpen(true);
+  }
+  const [calendarBusy, setCalendarBusy] = useState(false);
+  const [calendarNotice, setCalendarNotice] = useState<{
+    tone: 'ok' | 'warn' | 'err';
+    text: string;
+  } | null>(null);
+  // После сохранения с галочкой: окно-вопрос «добавить событие в календарь?».
+  // Ничего не открываем само: скачивание и переход делает кнопка, по нажатию человека
+  // (браузеры разрешают запуск/скачивание только из действия человека — это не обойти).
+  const [calendarPrompt, setCalendarPrompt] = useState<{ deadline: Deadline } | null>(null);
+
+  /**
+   * Видимая подсказка на iPhone после сохранения. На iPhone событие уже передано системе
+   * (файл отдан в самом нажатии «Добавить» — проверенный путь кнопки будильника из
+   * Настроек): Safari сразу показывает окно «Добавить в календарь». Подсказка нужна на
+   * случай, если окно не появилось, и как напоминание, чем закончить.
+   */
+  const iosNote = ios && calendarPrompt ? calendarPrompt.deadline : null;
 
   const live = useMemo(() => {
     if (!rows) return null;
@@ -50,6 +98,36 @@ export default function DeadlinesScreen({ ready }: { ready: boolean }) {
       .filter((r) => !r.deletedAt && r.visibility === 'family')
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   }, [rows]);
+
+  const handleSaved = (d: Deadline, addToCalendar: boolean) => {
+    setCalendarNotice(null);
+    setCalendarPrompt(addToCalendar ? { deadline: d } : null);
+  };
+
+  /**
+   * Кнопка окна-вопроса (Android и компьютер): скачиваем файл события. Открыть его за
+   * человека сайт не может — поэтому в подписи честно сказано, что нажать дальше.
+   */
+  const addOneToCalendar = (d: Deadline) => downloadOneForCalendar(d);
+
+  const downloadOneForCalendar = (d: Deadline) => {
+    void downloadSingleDeadlineIcs(d)
+      .then((date) => {
+        setCalendarPrompt(null);
+        setCalendarNotice({
+          tone: 'ok',
+          text: ios
+            ? `Скачан файл: «${d.title}» (${formatRu(date)}), 09:00. Откройте «Файлы» → «Загрузки» и коснитесь файла — Календарь iPhone покажет событие, нажмите «Добавить».`
+            : `Скачан файл: «${d.title}» (${formatRu(date)}), 09:00. Нажмите «Открыть» в плашке загрузки (или откройте «Загрузки») — календарь покажет окно события, выберите календарь и нажмите «Сохранить».`,
+        });
+      })
+      .catch(() =>
+        setCalendarNotice({
+          tone: 'err',
+          text: 'Не удалось подготовить событие для календаря. Повторите попытку.',
+        }),
+      );
+  };
 
   if (!ready || !live) {
     return (
@@ -69,6 +147,37 @@ export default function DeadlinesScreen({ ready }: { ready: boolean }) {
         {live.length > 0 ? `${live.length} срок(ов) под наблюдением` : 'пока пусто'}
       </div>
 
+      {iosNote && (
+        <Banner tone="ok">
+          <div className="stack" data-testid="calendar-ios-note" style={{ gap: 'var(--sp-2)' }}>
+            <div className="strong">Событие передано в календарь телефона</div>
+            <div className="small">
+              {`Family Hub · ${iosNote.title} · ${formatRu(iosNote.dueDate)}, 09:00 (Москва)`}
+            </div>
+            <div className="small">
+              Если появилось окно «Добавить в календарь» — выберите календарь и нажмите «Добавить».
+              Если окна не было — нажмите «Скачать файлом» и откройте файл в «Файлы» → «Загрузки».
+            </div>
+            <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => downloadOneForCalendar(iosNote)}
+              >
+                Скачать файлом
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost"
+                onClick={() => setCalendarPrompt(null)}
+              >
+                Понятно
+              </button>
+            </div>
+          </div>
+        </Banner>
+      )}
+
       {!sync.configured && (
         <Banner tone="warn">
           <div className="grow">
@@ -86,9 +195,9 @@ export default function DeadlinesScreen({ ready }: { ready: boolean }) {
           <div className="grow">
             <div className="strong">Добавьте первый срок</div>
             <div className="small">
-              Например: «Паспорт РФ — замена» с датой и напоминаниями за 30 и 7 дней. Приложение
-              напомнит само: в приложении — сразу, push для закрытого приложения появится на ЭТАПЕ
-              3.
+              Например: «Паспорт РФ — замена» с датой и напоминаниями за 30 и 7 дней. Напомним сами:
+              в приложении — сразу, а push для закрытого приложения включается в Настройках →
+              «Уведомления».
             </div>
           </div>
         </Banner>
@@ -139,15 +248,87 @@ export default function DeadlinesScreen({ ready }: { ready: boolean }) {
         type="button"
         className="btn btn--block"
         style={{ marginTop: 'var(--sp-2)' }}
+        disabled={calendarBusy || live.length === 0}
         onClick={() => {
-          void db.deadlines.toArray().then((all) => downloadIcs(all.filter((d) => !d.deletedAt)));
+          setCalendarBusy(true);
+          void downloadIcs(live)
+            .then((result: IcsDownloadResult) => {
+              setCalendarNotice({ tone: 'ok', text: calendarExportSummary(result) });
+            })
+            .catch(() => {
+              setCalendarNotice({
+                tone: 'err',
+                text: 'Не удалось скачать календарь. Проверьте наличие семейных сроков с датой и повторите.',
+              });
+            })
+            .finally(() => setCalendarBusy(false));
         }}
       >
-        <Icon name="calendar" size={20} /> В календарь телефона (резервно)
+        <Icon name="calendar" size={20} />{' '}
+        {calendarBusy ? 'Готовим файл…' : 'Выгрузить все сроки файлом (.ics)'}
       </button>
+      <p className="tiny muted" style={{ margin: 'var(--sp-1) 0 0' }}>
+        Обычный способ — галочка «Добавить в календарь телефона» в форме срока: после сохранения
+        приложение спросит, добавить ли событие, и подготовит его одним нажатием. Файл нужен редко:
+        в нём сразу все сроки, и телефон добавит их все.
+      </p>
+      {!ios && calendarPrompt && (
+        <Sheet open title="Добавить событие в календарь?" onClose={() => setCalendarPrompt(null)}>
+          <div className="stack" data-testid="calendar-prompt" style={{ gap: 'var(--sp-3)' }}>
+            <div className="stack" style={{ gap: 4 }}>
+              <div className="strong" style={{ fontSize: 'var(--fs-md)' }}>
+                {`Family Hub · ${calendarPrompt.deadline.title}`}
+              </div>
+              <div className="small">
+                {`${formatRu(calendarPrompt.deadline.dueDate)}, 09:00–09:15 (Москва)`}
+              </div>
+            </div>
+            {/*
+              Приоритет способа (владелец, 04.10.2026): основной путь — веб-версия
+              Google Календаря (крупная кнопка сверху). Файл .ics остаётся запасным
+              путём и намеренно меньше размером, чтобы не путать с основной кнопкой.
+            */}
+            <div className="stack" style={{ gap: 'var(--sp-2)' }}>
+              <a
+                className="btn btn--primary btn--block"
+                href={calendarAddTarget(calendarPrompt.deadline).url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Google Календарь
+              </a>
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost btn--block"
+                onClick={() => addOneToCalendar(calendarPrompt.deadline)}
+              >
+                Скачать файл события
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost btn--block"
+                onClick={() => setCalendarPrompt(null)}
+              >
+                Не нужно
+              </button>
+            </div>
+            <div className="tiny muted">{calendarHelp}</div>
+            <div className="tiny muted">
+              Файл занимает около 1 КБ и остаётся в «Загрузках» — при желании удалите его там.
+            </div>
+          </div>
+        </Sheet>
+      )}
+      {calendarNotice && (
+        <Banner tone={calendarNotice.tone}>
+          <div className="grow small">{calendarNotice.text}</div>
+        </Banner>
+      )}
 
-      {composeOpen && <DeadlineSheet onClose={() => setComposeOpen(false)} />}
-      {editing && <DeadlineSheet editing={editing} onClose={() => setEditing(null)} />}
+      {composeOpen && <DeadlineSheet onClose={() => setComposeOpen(false)} onSaved={handleSaved} />}
+      {editing && (
+        <DeadlineSheet editing={editing} onClose={() => setEditing(null)} onSaved={handleSaved} />
+      )}
       <div style={{ height: 64 }} aria-hidden="true" />
     </div>
   );
@@ -195,7 +376,16 @@ function DeadlineRow({ d, onEdit }: { d: Deadline; onEdit: (d: Deadline) => void
   );
 }
 
-function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: Deadline | null }) {
+function DeadlineSheet({
+  onClose,
+  editing,
+  onSaved,
+}: {
+  onClose: () => void;
+  editing?: Deadline | null;
+  /** Вызывается после сохранения: экран покажет окно-вопрос про календарь. */
+  onSaved?: (d: Deadline, addToCalendar: boolean) => void;
+}) {
   const [title, setTitle] = useState(editing?.title ?? '');
   const [kind, setKind] = useState<DeadlineKind>(editing?.deadlineKind ?? 'document');
   const [date, setDate] = useState(editing?.dueDate ?? '');
@@ -209,6 +399,14 @@ function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: De
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Галочка «Добавить в календарь телефона» — решение владельца 03.10: открывается
+  // окно создания события, сохранение подтверждает человек. Выбор запоминаем.
+  const [addToCalendar, setAddToCalendar] = useState(true);
+  useEffect(() => {
+    void kvGet<boolean>(KV_KEYS.notifyCalendarAddOnSave).then((v) => {
+      if (typeof v === 'boolean') setAddToCalendar(v);
+    });
+  }, []);
 
   const submit = async () => {
     const raw = title.trim();
@@ -228,27 +426,30 @@ function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: De
     }
     setBusy(true);
     setError(null);
+    // iPhone: файл события отдаём СИНХРОННО, в самом нажатии — тогда Safari сразу
+    // показывает системное окно «Добавить в календарь» (владелец проверил этот путь на
+    // кнопке будильника из Настроек: нажатие → окно календаря → «Сохранить»).
+    // Данные берём из формы, сохранение срока файл не задерживает.
+    if (addToCalendar && isIosClient()) {
+      downloadSingleDeadlineDraftIcs({ title: raw, dueDate: due }, steps);
+    }
+    // Срок сохраняем в любом случае: если человек закроет окно календаря, запись останется.
     try {
-      if (editing) {
-        await deadlinesRepo.update(editing.id, {
-          title: raw,
-          deadlineKind: kind,
-          dueDate: due,
-          remindersDays: steps,
-          alertDays: alertD,
-          warnDays: warnD,
-        });
-      } else {
-        await deadlinesRepo.add({
-          title: raw,
-          deadlineKind: kind,
-          dueDate: due,
-          remindersDays: steps,
-          alertDays: alertD,
-          warnDays: warnD,
-        });
-      }
+      await kvSet(KV_KEYS.notifyCalendarAddOnSave, addToCalendar);
+      const patch = {
+        title: raw,
+        deadlineKind: kind,
+        dueDate: due,
+        remindersDays: steps,
+        alertDays: alertD,
+        warnDays: warnD,
+      };
+      const saved = editing
+        ? await deadlinesRepo.update(editing.id, patch)
+        : await deadlinesRepo.add(patch);
       onClose();
+      const deadline = saved ?? (editing ? { ...editing, ...patch } : null);
+      if (deadline) onSaved?.(deadline, addToCalendar);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Неизвестная ошибка');
     } finally {
@@ -380,6 +581,23 @@ function DeadlineSheet({ onClose, editing }: { onClose: () => void; editing?: De
                   {s.label}
                 </button>
               ))}
+          </div>
+        </div>
+        <div className="row" style={{ gap: 'var(--sp-3)', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="checkbox"
+            role="checkbox"
+            aria-checked={addToCalendar}
+            aria-label="Добавить в календарь телефона"
+            onClick={() => setAddToCalendar((v) => !v)}
+          />
+          <div className="grow">
+            <div>Добавить в календарь телефона</div>
+            <div className="tiny muted">
+              Откроется окно создания события с названием, датой и временем — сохраните его там.
+              Напоминания в окне обычные (из настроек календаря); наши ступени ведёт приложение.
+            </div>
           </div>
         </div>
         <div className="sheet-footer">

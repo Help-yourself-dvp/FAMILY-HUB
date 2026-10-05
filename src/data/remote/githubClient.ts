@@ -98,6 +98,12 @@ export class GitHubClient {
     return `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${safe}`;
   }
 
+  /**
+   * ВАЖНО: набор заголовков ограничен тем, что GitHub разрешает в CORS-preflight
+   * (Authorization, Content-Type, If-None-Match, X-GitHub-Api-Version, Accept, …).
+   * Любой «свой» заголовок (например Cache-Control) обрушивает все запросы
+   * браузера с «Failed to fetch» — проверяется тестом github-headers.
+   */
   private async request(url: string, init: RequestInit, token: string | null): Promise<Response> {
     const headers = new Headers(init.headers);
     headers.set('Accept', 'application/vnd.github+json');
@@ -203,13 +209,22 @@ export class GitHubClient {
   async getFile(
     path: string,
     etag?: string | null,
+    /** Пропустить кэш браузера параметром в URL: нужно, когда читаем sha перед записью. */
+    fresh = false,
   ): Promise<
     { status: 'ok'; file: RemoteFileResult } | { status: 'notModified' } | { status: 'missing' }
   > {
     const token = await this.getToken();
     if (!token) throw new GitHubError(0, 'нет токена доступа', 'no-token');
 
-    const url = `${this.contentsUrl(path)}?ref=${encodeURIComponent(this.cfg.branch)}`;
+    // Свежесть ответа просим ПАРАМЕТРОМ URL, а не заголовком Cache-Control:
+    // GitHub отвечает на preflight строгим списком разрешённых заголовков
+    // (Authorization, Content-Type, If-None-Match, X-GitHub-Api-Version и др.),
+    // Cache-Control в нём НЕТ. Заголовок ломал preflight, и браузер отдавал
+    // «Failed to fetch» (status 0, code network) на КАЖДЫЙ запрос — регрессия
+    // 0.4.2, найденная по диагностике владельца 03.10.2026.
+    const base = `${this.contentsUrl(path)}?ref=${encodeURIComponent(this.cfg.branch)}`;
+    const url = fresh ? `${base}&_=${Date.now()}` : base;
     const headers: Record<string, string> = {};
     if (etag) headers['If-None-Match'] = etag;
 

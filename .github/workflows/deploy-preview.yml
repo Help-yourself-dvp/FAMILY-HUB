@@ -20,7 +20,7 @@ name: Deploy preview (Pages)
 
 on:
   push:
-    branches: [arena/01a0f5ef-family-hub]
+    branches: [arena/01a0fbcb-family-hub]
   # Ручной запуск кнопкой «Run workflow» — перезапустить публикацию без нового коммита.
   workflow_dispatch:
 

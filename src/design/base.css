@@ -62,7 +62,8 @@ a {
   width: 100%;
   max-width: 640px;
   margin: 0 auto;
-  padding: var(--sp-4) var(--sp-4) calc(var(--nav-h) + var(--sab) + 96px);
+  /* Верхний отступ уменьшен (0.5.4): пустая полоса над первой строкой съедала экран. */
+  padding: var(--sp-3) var(--sp-4) calc(var(--nav-h) + var(--sab) + 96px);
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
@@ -73,7 +74,6 @@ a {
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--sp-3);
-  padding-top: var(--sp-2);
 }
 
 .screen-title {

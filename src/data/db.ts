@@ -98,8 +98,8 @@ export function tableFor<T extends Syncable>(kind: EntityKind): Table<T, string>
     case 'members':
       return db.members as unknown as Table<T, string>;
     case 'dictionary':
-      // ЭТАП 5. Таблица появится вместе со словарём; сейчас — безопасный отказ.
-      throw new Error('dictionary: хранилище появится на ЭТАПЕ 5');
+      // Таблицы словаря в модели данных нет: говорим об этом прямо, а не молчим.
+      throw new Error('dictionary: это хранилище приложением пока не используется');
     default: {
       const exhaustive: never = kind;
       throw new Error(`Неизвестный вид сущностей: ${String(exhaustive)}`);
@@ -126,6 +126,15 @@ export const KV_KEYS = {
   lastSyncAt: 'sync.lastSuccessAt',
   lastSyncError: 'sync.lastError',
   notificationLevel: 'notifications.level',
+  /** Локальный кэш UI; источник истины для push — подписка браузера. */
+  notifyPushEnabled: 'notify.channels.push',
+  /** Только факт скачивания .ics, не подтверждение импорта в календарь. */
+  notifyIcsDownloaded: 'notify.channels.ics',
+  /** Только безопасные метаданные экспорта: количество, формат, время. */
+  notifyIcsExport: 'notify.calendar.export',
+  notifyCalendarAddOnSave: 'notify.calendar.addOnSave',
+  /** Дайджест «изменения корзины»: настройка устройства, дублируется в файле подписки. */
+  notifyShoppingPush: 'notify.shoppingPush',
 } as const;
 
 export async function kvGet<T>(key: string): Promise<T | undefined> {

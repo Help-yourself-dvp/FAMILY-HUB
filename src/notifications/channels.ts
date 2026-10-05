@@ -10,12 +10,14 @@
  *   1 ics-calendar     — работает всегда, ноль инфраструктуры, ЭКРАН ВЫКЛЮЧЕН ✓
  *   2 web-push         — требует GitHub Actions + VAPID, проверяется на устройствах
  */
-import { db, kvGet, KV_KEYS } from '../data/db';
-import { downloadIcs } from './ics';
+import { db, kvGet, kvSet, KV_KEYS } from '../data/db';
+import { calendarExportSummary, downloadIcs, exportableDeadlines } from './ics';
+import { recordLocalDelivery } from './deliveryState';
+import { notificationAppearance } from './appearance';
 import { log } from '../shared/log';
 import { loadSession } from '../data/session';
 import { auth } from '../data/remote/authStrategy';
-import { GitHubClient } from '../data/remote/githubClient';
+import { GitHubClient, GitHubError } from '../data/remote/githubClient';
 
 export type ChannelId = 'local-foreground' | 'ics-calendar' | 'web-push';
 
@@ -31,6 +33,72 @@ export interface SupportReport {
 export interface EnableResult {
   enabled: boolean;
   reason?: string;
+}
+
+/**
+ * Запись файла поверх возможной параллельной записи.
+ *
+ * Факт приёмки 2026-10-03: включение push падало с GitHub 409
+ * («data/push/<device>.json does not match <sha>»). Так отвечает GitHub, когда
+ * между нашим чтением sha и записью файл успел изменить кто-то ещё (второе
+ * устройство, автоматический отправитель напоминаний, повторный тап по тумблеру).
+ * Операция идемпотентна: перечитываем свежий sha и повторяем. Конфликт — не
+ * ошибка устройства и не «нет сервисов Google», поэтому и текст должен быть честным.
+ */
+export interface ResilientWriteDeps {
+  readSha: () => Promise<string | null>;
+  write: (sha: string | null) => Promise<unknown>;
+}
+
+export async function writeWithConflictRetry(
+  deps: ResilientWriteDeps,
+  attempts = 3,
+): Promise<{ attempts: number }> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const sha = await deps.readSha();
+    try {
+      await deps.write(sha);
+      return { attempts: attempt };
+    } catch (e) {
+      lastError = e;
+      const conflict = e instanceof GitHubError && e.code === 'conflict';
+      log.emit({
+        type: 'push:step',
+        step: conflict ? `upload-conflict-${attempt}` : `upload-failed-${attempt}`,
+      });
+      if (!conflict) throw e;
+    }
+  }
+  if (lastError instanceof Error) throw lastError;
+  throw new Error(
+    lastError === undefined
+      ? 'не удалось записать файл'
+      : `не удалось записать файл: ${typeof lastError}`,
+  );
+}
+
+/** Человеческое объяснение сбоя записи в семейное хранилище (без обвинений не по делу). */
+export function describeStorageFailure(e: unknown): string {
+  if (!(e instanceof GitHubError)) {
+    return `Подписка создана, но сохранить её не удалось: ${e instanceof Error ? e.message : String(e)}. Повторите включение.`;
+  }
+  switch (e.code) {
+    case 'conflict':
+      return 'Подписка создана, но файл одновременно изменился в семейном хранилище (так бывает при второй попытке или записи с другого устройства). Повторите включение — данные уже готовы, нужен только повтор.';
+    case 'timeout':
+    case 'network':
+      return 'Подписка создана, но GitHub не ответил (сеть). Повторите включение при устойчивой связи — подписка уже сохранена в телефоне.';
+    case 'rate-limit':
+    case 'secondary-limit':
+      return 'Подписка создана, но GitHub временно ограничил запросы. Повторите включение через несколько минут.';
+    case 'forbidden':
+    case 'unauthorized':
+    case 'no-token':
+      return 'Подписка создана, но нет доступа к семейному хранилищу. Проверьте подключение хранилища и токен в настройках.';
+    default:
+      return `Подписка создана, но сохранить её не удалось (${e.message}). Повторите включение.`;
+  }
 }
 
 export interface FamilyEvent {
@@ -102,8 +170,7 @@ const emptyDelivery = (channelId: ChannelId): DeliveryReport => ({
 class LocalForegroundChannel implements NotificationChannel {
   readonly id = 'local-foreground' as const;
   readonly label = 'Уведомления в приложении';
-  readonly description =
-    'Лента на Главной и системные уведомления, пока приложение открыто. Работает всегда, не требует интернета и внешних сервисов.';
+  readonly description = 'Показывает напоминания, пока приложение открыто. Настроек не требует.';
   readonly worksScreenOff = false;
   readonly needsExternalInfra = false;
   readonly level = 0 as const;
@@ -142,7 +209,13 @@ class LocalForegroundChannel implements NotificationChannel {
       try {
         const reg = await navigator.serviceWorker?.getRegistration();
         if (reg && Notification.permission === 'granted') {
-          await reg.showNotification(e.title, { body: e.body, tag: e.id, lang: 'ru' });
+          await reg.showNotification(e.title, {
+            ...notificationAppearance(reg.scope),
+            body: e.body,
+            tag: e.id,
+            data: { route: e.route ?? '#/', source: 'local-foreground' },
+          });
+          await recordLocalDelivery();
           report.delivered += 1;
         } else {
           report.failed += 1;
@@ -172,14 +245,14 @@ class IcsCalendarChannel implements NotificationChannel {
   readonly id = 'ics-calendar' as const;
   readonly label = 'Календарь телефона (ICS)';
   readonly description =
-    'Резервный канал: скачивает файл календаря (.ics) со всеми сроками — телефон добавит их в системный календарь и напомнит сам, даже если сайт и push откажут. Повторите включение после изменения сроков.';
+    'Файл календаря на случай, когда нет интернета: события в 09:00 (Москва) с напоминаниями. Импорт подтверждаете вы сами. Выключение не удаляет уже добавленные события.';
   readonly worksScreenOff = true;
   readonly needsExternalInfra = false;
   readonly level = 1 as const;
 
   isSupported(): Promise<SupportReport> {
-    // Скачивание .ics работает во всех мобильных браузерах; на iOS открытие файла
-    // предлагает «Добавить все события в календарь».
+    // Проверяем только способность скачать файл. Наличие импортёра календаря
+    // браузеру неизвестно; не обещаем автоматический импорт на Android.
     return Promise.resolve({
       supported: typeof window !== 'undefined' && typeof Blob !== 'undefined',
     });
@@ -187,34 +260,31 @@ class IcsCalendarChannel implements NotificationChannel {
   async enable(): Promise<EnableResult> {
     try {
       const deadlines = await db.deadlines.toArray();
-      const live = deadlines.filter((d) => !d.deletedAt);
+      const live = exportableDeadlines(deadlines);
       if (live.length === 0) {
         return { enabled: false, reason: 'Сроков пока нет — добавьте срок, затем включите канал' };
       }
-      downloadIcs(live);
-      return {
-        enabled: true,
-        reason: `Файл календаря скачан (${live.length} событий) — подтвердите добавление в календарь телефона`,
-      };
+      const result = await downloadIcs(live);
+      return { enabled: true, reason: calendarExportSummary(result) };
     } catch (e) {
       return { enabled: false, reason: e instanceof Error ? e.message : String(e) };
     }
   }
-  disable(): Promise<void> {
-    return Promise.resolve();
+  async disable(): Promise<void> {
+    // События в системном календаре браузеру недоступны: снимаем только отметку.
+    await kvSet(KV_KEYS.notifyIcsDownloaded, false);
   }
   deliver(): Promise<DeliveryReport> {
-    // Реальная генерация ICS — ЭТАП 6 (§6.12). Канал объявлен сейчас, чтобы
-    // архитектура и UI-тумблер были готовы.
+    // Календарь напомнит сам после ручного импорта файла, не через deliver().
     return Promise.resolve(emptyDelivery(this.id));
   }
   async diagnose(): Promise<DiagnosticSnapshot> {
     const s = await this.isSupported();
     return {
       channelId: this.id,
-      enabled: false,
+      enabled: (await kvGet<boolean>(KV_KEYS.notifyIcsDownloaded)) === true,
       supported: s.supported,
-      details: { note: 'генерация ICS появится на ЭТАПЕ 6' },
+      details: { note: 'флаг означает: .ics скачан; импорт подтверждает пользователь' },
     };
   }
 }
@@ -224,10 +294,16 @@ class WebPushChannel implements NotificationChannel {
   readonly id = 'web-push' as const;
   readonly label = 'Push при закрытом приложении';
   readonly description =
-    'Системные уведомления через GitHub Actions. Требует установки PWA на Home Screen и проверки на вашем устройстве (ЭТАП 3).';
+    'Уведомления приходят, даже когда приложение закрыто. На iPhone приложение нужно установить на экран «Домой».';
   readonly worksScreenOff = true;
   readonly needsExternalInfra = true;
   readonly level = 2 as const;
+
+  /**
+   * Защита от гонки: пока идёт включение/выключение, второй тап не запускает
+   * вторую параллельную запись того же файла (именно она давала GitHub 409).
+   */
+  private toggling = false;
 
   isSupported(): Promise<SupportReport> {
     if (
@@ -254,7 +330,7 @@ class WebPushChannel implements NotificationChannel {
   }
 
   /**
-   * ЭТАП 3: настоящая подписка Web Push.
+   * Подписка Web Push:
    * Публичный ключ VAPID берём из public/vapid.json приложения (ротация без
    * пересборки), подписку кладём в семейное хранилище data/push/<deviceId>.json —
    * её читает отправитель напоминаний (workflow в публичном репозитории).
@@ -262,6 +338,21 @@ class WebPushChannel implements NotificationChannel {
   async enable(): Promise<EnableResult> {
     const s = await this.isSupported();
     if (!s.supported) return { enabled: false, reason: s.reason };
+    if (this.toggling) {
+      return {
+        enabled: false,
+        reason: 'Включение уже выполняется — подождите пару секунд и проверьте состояние ещё раз.',
+      };
+    }
+    this.toggling = true;
+    try {
+      return await this.enableOnce();
+    } finally {
+      this.toggling = false;
+    }
+  }
+
+  private async enableOnce(): Promise<EnableResult> {
     log.emit({ type: 'push:step', step: 'enable-start' });
 
     const owner = await kvGet<string>(KV_KEYS.remoteOwner);
@@ -285,7 +376,7 @@ class WebPushChannel implements NotificationChannel {
 
     let vapidPublicKey: string | undefined;
     try {
-      const res = await fetch(new URL('vapid.json', document.baseURI).href);
+      const res = await fetch(new URL('vapid.json', document.baseURI).href, { cache: 'no-store' });
       const cfg = (await res.json()) as { vapidPublicKey?: string };
       vapidPublicKey = cfg.vapidPublicKey;
     } catch {
@@ -309,31 +400,49 @@ class WebPushChannel implements NotificationChannel {
         }));
     log.emit({ type: 'push:step', step: 'subscribe-ok' });
 
-    const deviceId = (await loadSession()).deviceId;
+    const pushSession = await loadSession();
+    const deviceId = pushSession.deviceId;
     const client = new GitHubClient({ owner, repo, branch }, () => auth.getToken());
     const path = `data/push/${deviceId}.json`;
-    const cur = await client.getFile(path);
-    const sha = cur.status === 'ok' ? cur.file.sha : null;
-    await client.putFile(
-      path,
-      JSON.stringify(
-        {
-          deviceId,
-          subscribedAt: new Date().toISOString(),
-          revoked: false,
-          subscription: sub.toJSON(),
-        },
-        null,
-        2,
-      ),
-      sha,
-      `push: подписка устройства ${deviceId}`,
+    const payload = JSON.stringify(
+      {
+        deviceId,
+        memberId: pushSession.memberEntityId || deviceId,
+        subscribedAt: new Date().toISOString(),
+        revoked: false,
+        // Тумблер «Push об изменениях корзины» живёт на устройстве, а решение
+        // принимает отправитель — поэтому дублируем согласие в файл подписки (0.5.6).
+        notifyShopping: (await kvGet<boolean>(KV_KEYS.notifyShoppingPush)) === true,
+        subscription: sub.toJSON(),
+      },
+      null,
+      2,
     );
-    log.emit({ type: 'push:step', step: 'upload-ok' });
+    try {
+      const { attempts } = await writeWithConflictRetry({
+        readSha: async () => {
+          const cur = await client.getFile(path, null, true);
+          return cur.status === 'ok' ? cur.file.sha : null;
+        },
+        write: (sha) => client.putFile(path, payload, sha, `push: подписка устройства ${deviceId}`),
+      });
+      log.emit({
+        type: 'push:step',
+        step: attempts > 1 ? `upload-ok-retry-${attempts}` : 'upload-ok',
+      });
+    } catch (e) {
+      // Подписка в телефоне уже есть — второй тап доведёт дело до конца, поэтому
+      // возвращаем понятную причину, а не роняем включение с обвинением устройству.
+      const reason = describeStorageFailure(e);
+      log.emit({ type: 'push:step', step: 'upload-aborted' });
+      return { enabled: false, reason };
+    }
     return { enabled: true };
   }
 
   async disable(): Promise<void> {
+    if (this.toggling) return;
+    this.toggling = true;
     try {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
@@ -345,16 +454,22 @@ class WebPushChannel implements NotificationChannel {
       const deviceId = (await loadSession()).deviceId;
       const client = new GitHubClient({ owner, repo, branch }, () => auth.getToken());
       const path = `data/push/${deviceId}.json`;
-      const cur = await client.getFile(path);
-      const sha = cur.status === 'ok' ? cur.file.sha : null;
-      await client.putFile(
-        path,
-        JSON.stringify({ deviceId, revoked: true, at: new Date().toISOString() }, null, 2),
-        sha,
-        `push: отписка устройства ${deviceId}`,
+      const payload = JSON.stringify(
+        { deviceId, revoked: true, at: new Date().toISOString() },
+        null,
+        2,
       );
+      await writeWithConflictRetry({
+        readSha: async () => {
+          const cur = await client.getFile(path, null, true);
+          return cur.status === 'ok' ? cur.file.sha : null;
+        },
+        write: (sha) => client.putFile(path, payload, sha, `push: отписка устройства ${deviceId}`),
+      });
     } catch {
       // Отписка — не критично: мёртвые подписки отправитель удалит сам по 410.
+    } finally {
+      this.toggling = false;
     }
   }
   deliver(): Promise<DeliveryReport> {
@@ -362,17 +477,19 @@ class WebPushChannel implements NotificationChannel {
   }
   async diagnose(): Promise<DiagnosticSnapshot> {
     const s = await this.isSupported();
-    const reg = await navigator.serviceWorker?.getRegistration?.();
-    let subscribed = false;
+    let reg: ServiceWorkerRegistration | undefined;
+    let subscribed: boolean | null = null;
     try {
-      const ready = await navigator.serviceWorker?.ready;
-      subscribed = Boolean(await ready?.pushManager?.getSubscription?.());
+      reg = await navigator.serviceWorker?.getRegistration?.();
+      // ready может никогда не завершиться, если SW ещё не зарегистрирован.
+      // Проверка состояния не должна ни ждать установки, ни создавать подписку.
+      subscribed = Boolean(await reg?.pushManager?.getSubscription?.());
     } catch {
-      // Диагностика не критична: остаётся false.
+      // null = проверить не удалось, а не «подписки нет». UI сохранит свой кэш.
     }
     return {
       channelId: this.id,
-      enabled: subscribed,
+      enabled: subscribed === true,
       supported: s.supported,
       details: {
         serviceWorkerRegistered: Boolean(reg),
@@ -384,6 +501,51 @@ class WebPushChannel implements NotificationChannel {
       },
     };
   }
+}
+
+/**
+ * Публикует согласие на дайджест покупок в семейное хранилище (0.5.6).
+ *
+ * Зачем: тумблер живёт в телефоне, а уведомление шлёт отправитель, который о телефоне
+ * ничего не знает. Флаг в файле подписки — единственный канал передачи решения.
+ * Если подписки нет или файл чужой/битый — тихо ничего не делаем: без подписки
+ * доставка невозможна, а чужие данные переписывать нельзя.
+ */
+export async function publishShoppingPreference(enabled: boolean): Promise<void> {
+  const owner = await kvGet<string>(KV_KEYS.remoteOwner);
+  const repo = await kvGet<string>(KV_KEYS.remoteRepo);
+  const branch = (await kvGet<string>(KV_KEYS.remoteBranch)) ?? 'main';
+  if (!owner || !repo) return;
+  const deviceId = (await loadSession()).deviceId;
+  const client = new GitHubClient({ owner, repo, branch }, () => auth.getToken());
+  const path = `data/push/${deviceId}.json`;
+  const cur = await client.getFile(path, null, true);
+  if (cur.status !== 'ok') return; // подписки нет — обновлять нечего
+  let doc: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(cur.file.content);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+    doc = parsed as Record<string, unknown>;
+  } catch {
+    return;
+  }
+  if (doc.revoked === true || !doc.subscription) return;
+  doc.notifyShopping = enabled;
+  doc.prefsAt = new Date().toISOString();
+  const payload = JSON.stringify(doc, null, 2);
+  await writeWithConflictRetry({
+    readSha: async () => {
+      const next = await client.getFile(path, null, true);
+      return next.status === 'ok' ? next.file.sha : null;
+    },
+    write: (sha) =>
+      client.putFile(
+        path,
+        payload,
+        sha,
+        `push: дайджест покупок ${enabled ? 'вкл' : 'выкл'} (${deviceId})`,
+      ),
+  });
 }
 
 /** URL-safe base64 (ключ VAPID) → ArrayBuffer для PushManager. */
