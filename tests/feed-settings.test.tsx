@@ -10,6 +10,7 @@ import FeedSubscriptionSection from '../src/features/settings/FeedSubscriptionSe
 import { eventsWord, formatPublishedAt } from '../src/features/settings/feedFormat';
 import { db, kvSet, KV_KEYS } from '../src/data/db';
 import { auth } from '../src/data/remote/authStrategy';
+import { resetFeedPathCache } from '../src/data/remote/feed';
 
 const VAPID = {
   vapidPublicKey: 'fixture',
@@ -103,6 +104,8 @@ beforeEach(async () => {
   putGate = null;
   rawMode = 'ok';
   apiMode = 'ok';
+  // Память о рабочем пути чтения — между тестами сбрасываем, иначе тесты влияют друг на друга.
+  resetFeedPathCache();
   await db.kv.clear();
   await db.deadlines.clear();
   await db.tasks.clear();
@@ -307,6 +310,77 @@ describe('лента в Настройках', () => {
     await waitFor(() => expect(check.textContent).toContain('прочитать не удалось'));
     expect(check.textContent).toContain('не влияет');
     expect(check.textContent).toContain('BEGIN:VCALENDAR');
+  });
+
+  it('во время чтения файла сразу видно «Проверяю файл…», а кнопка занята', async () => {
+    stored = {
+      sections: { deadlines: true, tasks: false },
+      slugs: { deadlines: 'a'.repeat(32), tasks: 'b'.repeat(32) },
+      previousSlugs: [],
+      publishedAt: '2026-10-05T11:48:30.000Z',
+    };
+    // Чтение «зависает»: без метки «проверяю…» нажатие выглядело как неработающая кнопка.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).includes('vapid.json')) {
+          return new Response(JSON.stringify(VAPID), { status: 200 });
+        }
+        if (String(url).includes('raw.githubusercontent.com')) {
+          await gate;
+          return new Response(FEED_ICS, { status: 200 });
+        }
+        const target = new URL(String(url));
+        if (target.pathname.endsWith('/data/feed.json')) {
+          return new Response(
+            JSON.stringify({
+              sha: 's',
+              encoding: 'base64',
+              content: toB64(JSON.stringify(stored)),
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response('{}', { status: 404 });
+      }),
+    );
+    render(<FeedSubscriptionSection />);
+    expect(await screen.findByText('Проверяю файл…')).toBeTruthy();
+    const btn = screen.getByRole<HTMLButtonElement>('button', { name: 'читаю файл…' });
+    expect(btn.disabled).toBe(true);
+    release();
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-check-deadlines').textContent).toContain('В файле сейчас'),
+    );
+  });
+
+  it('если адрес подписки закрыт, следующий раз читаем сразу через API (без ожидания)', async () => {
+    stored = {
+      sections: { deadlines: true, tasks: false },
+      slugs: { deadlines: 'a'.repeat(32), tasks: 'b'.repeat(32) },
+      previousSlugs: [],
+      publishedAt: '2026-10-05T11:48:30.000Z',
+    };
+    rawMode = 'fail';
+    render(<FeedSubscriptionSection />);
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-check-deadlines').textContent).toContain('В файле сейчас'),
+    );
+    const rawCalls = () =>
+      (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter((c) =>
+        String(c[0]).includes('raw.githubusercontent.com'),
+      ).length;
+    const before = rawCalls();
+    await userEvent.click(screen.getByRole('button', { name: 'Перечитать файл' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('feed-check-deadlines').textContent).toContain('В файле сейчас'),
+    );
+    // Повторное чтение не мучает закрытый адрес: сразу идёт запасной путь.
+    expect(rawCalls()).toBe(before);
   });
 
   it('«Обновить ленту сейчас» просит GitHub запустить отправителя и обещает перечитать файл', async () => {

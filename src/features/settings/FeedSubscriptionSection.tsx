@@ -46,7 +46,10 @@ const SECTION_INFO: Record<FeedSection, { title: string; hint: string }> = {
 
 /** Результат чтения файла: прочитан, ещё не создан или прочитать не удалось. */
 type FeedCheckResult =
-  { kind: 'ok'; check: FeedCheck } | { kind: 'not-published' } | { kind: 'unreachable' };
+  | { kind: 'checking' }
+  | { kind: 'ok'; check: FeedCheck }
+  | { kind: 'not-published' }
+  | { kind: 'unreachable' };
 
 /**
  * Итог сверки под ссылкой: сколько событий в файле и что не попало. Показываем не больше
@@ -55,6 +58,13 @@ type FeedCheckResult =
  * календарь скачивает ленту со своей стороны) и как проверить вручную.
  */
 function FeedCheckLine({ result, section }: { result: FeedCheckResult; section: FeedSection }) {
+  if (result.kind === 'checking') {
+    return (
+      <span className="tiny muted" data-testid={`feed-check-${section}`}>
+        Проверяю файл…
+      </span>
+    );
+  }
   if (result.kind === 'not-published') {
     return (
       <div className="stack tiny muted" style={{ gap: 4 }} data-testid={`feed-check-${section}`}>
@@ -237,6 +247,9 @@ export default function FeedSubscriptionSection() {
     void (async () => {
       for (const section of ['deadlines', 'tasks'] as const) {
         if (!state.sections[section] || state.publishedAt === null) continue;
+        // Метка «проверяю…» сразу: чтение файла занимает до нескольких секунд, и без неё
+        // нажатие кнопки выглядит так, будто ничего не произошло (жалоба владельца 05.10.2026).
+        setChecks((prev) => ({ ...prev, [section]: { kind: 'checking' } }));
         const file = await fetchFeedIds(cfg, state.slugs[section]);
         if (cancelled) return;
         if (file.kind !== 'ok') {
@@ -256,6 +269,7 @@ export default function FeedSubscriptionSection() {
   }, [cfg, state, localDeadlines, localTasks, checkTick]);
 
   const anyEnabled = state ? state.sections.deadlines || state.sections.tasks : false;
+  const anyChecking = (['deadlines', 'tasks'] as const).some((s) => checks[s]?.kind === 'checking');
 
   return (
     <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
@@ -380,10 +394,10 @@ export default function FeedSubscriptionSection() {
             <button
               type="button"
               className="btn btn--sm btn--ghost"
-              disabled={!anyEnabled}
+              disabled={!anyEnabled || anyChecking}
               onClick={() => setCheckTick((n) => n + 1)}
             >
-              Перечитать файл
+              {anyChecking ? 'читаю файл…' : 'Перечитать файл'}
             </button>
             <button
               type="button"

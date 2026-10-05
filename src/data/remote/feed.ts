@@ -146,12 +146,48 @@ export type FeedFileResult =
   /** Прочитать не удалось: сеть/провайдер или GitHub недоступен. */
   | { kind: 'unreachable' };
 
+/**
+ * Запрос с ограничением времени. Без него закрытый провайдером адрес не «падает», а висит:
+ * браузер держит соединение минутами, и проверка выглядит как «кнопка не работает»
+ * (жалоба владельца 05.10.2026).
+ */
+async function fetchWithTimeout(
+  url: string,
+  ms: number,
+  init: RequestInit = {},
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Короткий предел для адреса подписки: он может быть закрыт провайдером. */
+const SUBSCRIPTION_TIMEOUT_MS = 6000;
+/** Предел для запасного пути: он рабочий, но сеть бывает медленной. */
+const API_TIMEOUT_MS = 12000;
+
+/** Только для тестов: забыть, какой путь чтения файла сработал. */
+export function resetFeedPathCache(): void {
+  workingPath = null;
+}
+
+/**
+ * Помним, какой путь чтения сработал: если адрес подписки закрыт, не мучаем его каждый раз,
+ * а сразу идём через api.github.com. Память — до перезагрузки страницы, этого достаточно.
+ */
+let workingPath: 'subscription' | 'api' | null = null;
+
 /** Запасной путь чтения: через API GitHub (открыт для публичных файлов, CORS разрешён). */
 async function fetchFeedViaApi(cfg: FeedConfig, slug: string): Promise<FeedFileResult> {
   try {
     const token = await auth.getToken();
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/feed/${slug}.ics?ref=${cfg.branch}`,
+      API_TIMEOUT_MS,
       {
         headers: {
           Accept: 'application/vnd.github.raw',
@@ -176,14 +212,23 @@ async function fetchFeedViaApi(cfg: FeedConfig, slug: string): Promise<FeedFileR
  * Google скачивает ленту со своей стороны, — но проверка в приложении должна работать.
  */
 export async function fetchFeedIds(cfg: FeedConfig, slug: string): Promise<FeedFileResult> {
-  try {
-    const res = await fetch(feedUrl(cfg, slug), { cache: 'no-store' });
-    if (res.status === 404) return { kind: 'not-published' };
-    if (res.ok) return { kind: 'ok', ids: parseFeedIds(await res.text()) };
-    return await fetchFeedViaApi(cfg, slug);
-  } catch {
-    return await fetchFeedViaApi(cfg, slug);
+  if (workingPath !== 'api') {
+    try {
+      const res = await fetchWithTimeout(feedUrl(cfg, slug), SUBSCRIPTION_TIMEOUT_MS, {
+        cache: 'no-store',
+      });
+      if (res.status === 404) return { kind: 'not-published' };
+      if (res.ok) {
+        workingPath = 'subscription';
+        return { kind: 'ok', ids: parseFeedIds(await res.text()) };
+      }
+    } catch {
+      // Адрес закрыт или не ответил вовремя — идём запасным путём ниже.
+    }
   }
+  const viaApi = await fetchFeedViaApi(cfg, slug);
+  if (viaApi.kind === 'ok') workingPath = 'api';
+  return viaApi;
 }
 
 /** Что из семейных записей не попало в ленту и почему — простыми словами для владельца. */
