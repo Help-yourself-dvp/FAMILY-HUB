@@ -18,6 +18,7 @@ import {
   reminderSteps,
 } from '../scripts/feed.mjs';
 import senderSource from '../scripts/push-sender.mjs?raw';
+import feedPublishSource from '../scripts/feed-publish.mjs?raw';
 import { checkFeedSection, parseFeedIds } from '../src/data/remote/feed';
 import workflow from '../.github/workflows/push-sender.yml?raw';
 
@@ -68,8 +69,10 @@ describe('лента сроков', () => {
   });
 
   it('подсказки календарям о частоте обновления присутствуют', () => {
-    expect(ics).toContain('REFRESH-INTERVAL;VALUE=DURATION:PT4H');
-    expect(ics).toContain('X-PUBLISHED-TTL:PT4H');
+    // 0.6.9: 15 минут вместо 4 часов — iPhone honour REFRESH-INTERVAL буквально,
+    // новое событие иначе висело бы в подписке четыре часа.
+    expect(ics).toContain('REFRESH-INTERVAL;VALUE=DURATION:PT15M');
+    expect(ics).toContain('X-PUBLISHED-TTL:PT15M');
     expect(ics).toContain('X-WR-CALNAME:Family Hub — сроки');
   });
 
@@ -213,44 +216,45 @@ describe('сверка с опубликованным файлом (что вл
   });
 });
 
-describe('отправитель действительно публикует ленту', () => {
-  it('цикл отправки действительно вызывает публикацию ленты', () => {
+describe('лента публикуется быстро и без зависимостей (0.6.9)', () => {
+  it('отдельный скрипт собирает .ics из данных семейного хранилища', () => {
     // Сторож на проводку: мало иметь функции рядом — их нужно вызвать.
-    expect(senderSource).toContain('await publishFeeds({ deadlines, tasks, log });');
-    expect(senderSource).toContain('await publishFeedSafely(deadlines, tasks);');
+    expect(feedPublishSource).toContain('buildFeedIcs(');
+    expect(feedPublishSource).toContain("getJson('data/feed.json')");
+    expect(feedPublishSource).toContain("getJson('data/deadlines.json')");
+    expect(feedPublishSource).toContain("getJson('data/tasks.json')");
+    expect(feedPublishSource).toContain('publishedAt');
+    expect(feedPublishSource).toContain('previousSlugs');
   });
 
-  it('лента публикуется до push-части: без VAPID и без подписок устройств', () => {
-    const feedCall = senderSource.indexOf('await publishFeedSafely(deadlines, tasks);');
-    const vapidCheck = senderSource.indexOf('if (!TOKEN || !VAPID_PRIVATE)');
-    const subsCheck = senderSource.indexOf('const subs = await loadSubscriptions();');
-    expect(feedCall).toBeGreaterThan(-1);
-    expect(vapidCheck).toBeGreaterThan(-1);
-    expect(subsCheck).toBeGreaterThan(-1);
-    // Раньше лента стояла в самом конце цикла и пропускалась, если у семьи нет
-    // push-подписок или ключей VAPID, — события зависали в календаре навсегда.
-    expect(feedCall).toBeLessThan(vapidCheck);
-    expect(feedCall).toBeLessThan(subsCheck);
+  it('job ленты идёт в workflow ДО установки зависимостей — секунды, не минута', () => {
+    // Суть 0.6.9: ленте web-push не нужен, поэтому npm ci не должен стоять перед ней.
+    const feedJob = workflow.indexOf('node scripts/feed-publish.mjs');
+    // Именно шаг установки: в комментариях слова «npm ci» тоже встречаются.
+    const install = workflow.indexOf('run: npm ci');
+    expect(feedJob).toBeGreaterThan(-1);
+    expect(install).toBeGreaterThan(-1);
+    expect(feedJob).toBeLessThan(install);
   });
 
-  it('читает настройки из data/feed.json и уважает выключенные разделы', () => {
-    expect(senderSource).toContain("getJsonFile('data/feed.json')");
-    expect(senderSource).toContain('buildFeedIcs(');
-    expect(senderSource).toContain("['deadlines', 'tasks']");
-    expect(senderSource).toContain('previousSlugs');
+  it('цикл напоминаний ленту больше не публикует — иначе двойная запись и гонка', () => {
+    expect(senderSource).not.toContain('publishFeeds');
+    expect(senderSource).not.toContain('buildFeedIcs');
+    // Напоминания по-прежнему читают сроки и дела для своих push.
+    expect(senderSource).toContain("getJsonFile('data/deadlines.json')");
+    expect(senderSource).toContain("getJsonFile('data/tasks.json')");
   });
 
   it('публикует встроенным токеном в ветку feed, отдельного секрета не требует', () => {
-    expect(senderSource).toContain('PUBLIC_REPO_TOKEN');
-    expect(senderSource).toContain("const branch = 'feed'");
-    expect(senderSource).toContain('/git/refs');
     expect(workflow).toContain('PUBLIC_REPO_TOKEN: ${{ github.token }}');
+    // Право записи нужно ОБОИМ job'ам, поэтому оно на уровне workflow.
     expect(workflow).toMatch(/permissions:\s*\n\s*contents: write/u);
+    expect(feedPublishSource).toContain('refs/heads/feed');
   });
 
-  it('после публикации пишет отметку времени, чтобы приложение показало статус', () => {
-    expect(senderSource).toContain("'feed: лента опубликована'");
-    expect(senderSource).toContain('publishedAt');
+  it('отметку публикации пишет только после успешной публикации файлов', () => {
+    expect(feedPublishSource).toContain('summary.published > 0');
+    expect(feedPublishSource).toContain("'feed: лента опубликована'");
   });
 
   it('расписание просит GitHub как можно чаще (5 минут) — замер 03–05.10.2026', () => {

@@ -428,7 +428,7 @@ export default function FeedSubscriptionSection() {
         <div className="stack">
           <p className="small" style={{ margin: 0 }}>
             Лента — календарь, который телефон скачивает сам. Ссылка одна на всю семью; календарь
-            перечитывает её несколько раз в сутки.
+            перечитывает её сам: iPhone — примерно каждые 15 минут, Google — часами, иногда дольше.
           </p>
           <div className="small">
             <div className="strong">Подписаться (один раз на телефон)</div>
@@ -443,7 +443,10 @@ export default function FeedSubscriptionSection() {
           </div>
           <div className="small">
             <div className="strong">Что важно знать</div>
-            <div className="muted">Обновление не мгновенное: часы, иногда сутки.</div>
+            <div className="muted">
+              Обновление не мгновенное: iPhone — около 15 минут после публикации, Google — часы,
+              иногда сутки. Файл ленты обновляется сразу, как только отправитель запустится.
+            </div>
             <div className="muted">
               На iPhone у подписного календаря есть переключатель «Удалить будильники»: если он
               включён, событие будет видно, а звонка не будет.
