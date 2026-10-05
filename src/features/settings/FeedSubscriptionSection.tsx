@@ -26,6 +26,24 @@ import {
 } from '../../data/remote/feed';
 import { describeStorageFailure } from '../../notifications/channels';
 
+/**
+ * Когда лента обновлялась в последний раз. Время показываем в Москве (единый пояс семьи),
+ * и только если отправитель действительно публиковал файл: иначе честнее сказать, что
+ * файла ещё нет.
+ */
+export function formatPublishedAt(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return 'время неизвестно';
+  const parts = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(at);
+  return `${parts} (Москва)`;
+}
+
 const SECTION_INFO: Record<FeedSection, { title: string; hint: string }> = {
   deadlines: {
     title: 'Сроки',
@@ -200,8 +218,12 @@ export default function FeedSubscriptionSection() {
                     >
                       Скопировать ссылку
                     </button>
-                    {state.publishedAt === null && (
+                    {state.publishedAt === null ? (
                       <span className="tiny muted">Файл появится после ближайшего запуска</span>
+                    ) : (
+                      <span className="tiny muted" data-testid={`feed-published-${section}`}>
+                        Обновлено: {formatPublishedAt(state.publishedAt)}
+                      </span>
                     )}
                   </div>
                 </div>

@@ -6,7 +6,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import FeedSubscriptionSection from '../src/features/settings/FeedSubscriptionSection';
+import FeedSubscriptionSection, {
+  formatPublishedAt,
+} from '../src/features/settings/FeedSubscriptionSection';
 import { db, kvSet, KV_KEYS } from '../src/data/db';
 import { auth } from '../src/data/remote/authStrategy';
 
@@ -114,6 +116,28 @@ describe('лента в Настройках', () => {
     // Секретная часть адреса при включении не меняется — ссылка остаётся прежней.
     expect(saved.slugs.deadlines).toBe('a'.repeat(32));
     expect(await screen.findByText(/ближайший запуск/u)).toBeTruthy();
+  });
+
+  it('показывает, когда лента обновлялась (чтобы проверять без похода в GitHub)', async () => {
+    stored = {
+      sections: { deadlines: true, tasks: false },
+      slugs: { deadlines: 'a'.repeat(32), tasks: 'b'.repeat(32) },
+      previousSlugs: [],
+      publishedAt: '2026-10-05T11:15:46.000Z',
+    };
+    render(<FeedSubscriptionSection />);
+    const line = await screen.findByTestId('feed-published-deadlines');
+    expect(line.textContent).toContain('Обновлено:');
+    // 11:15 UTC = 14:15 по Москве; формат — единый для всей семьи.
+    expect(line.textContent).toContain('14:15');
+    expect(line.textContent).toContain('Москва');
+    // Пока отправитель не публиковал, обещаем появление файла, а не время.
+    expect(screen.queryByTestId('feed-published-tasks')).toBeNull();
+  });
+
+  it('время публикации переводится в Москву и не ломается на мусоре', () => {
+    expect(formatPublishedAt('2026-10-05T11:15:46.000Z')).toBe('05.10, 14:15 (Москва)');
+    expect(formatPublishedAt('не дата')).toBe('время неизвестно');
   });
 
   it('во время сохранения подпись говорит «включаем…/выключаем…», как в push-блоке', async () => {
