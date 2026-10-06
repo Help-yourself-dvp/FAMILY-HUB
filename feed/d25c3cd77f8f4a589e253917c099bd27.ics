@@ -18,31 +18,6 @@ TZNAME:MSK
 END:STANDARD
 END:VTIMEZONE
 BEGIN:VEVENT
-UID:deadline-27335a45-d52c-4a87-b90d-e3a9e52cceb4@family-hub.local
-DTSTAMP:20261005T162432Z
-DTSTART;TZID=Europe/Moscow:20261010T090000
-DTEND;TZID=Europe/Moscow:20261010T091500
-SEQUENCE:1
-STATUS:CONFIRMED
-TRANSP:TRANSPARENT
-SUMMARY:Family Hub · Тест переноса события из вет
- ки main автоматически
-DESCRIPTION:Создано в приложении Family Hub. Срок в 
- календаре семьи.
-BEGIN:VALARM
-ACTION:DISPLAY
-DESCRIPTION:Family Hub · срок «Тест переноса событи
- я из ветки main автоматически»
-TRIGGER:-P1D
-END:VALARM
-BEGIN:VALARM
-ACTION:DISPLAY
-DESCRIPTION:Family Hub · срок «Тест переноса событи
- я из ветки main автоматически»
-TRIGGER:PT0S
-END:VALARM
-END:VEVENT
-BEGIN:VEVENT
 UID:deadline-342c9f03-eebe-4888-ab3d-f683641e2754@family-hub.local
 DTSTAMP:20261005T084537Z
 DTSTART;TZID=Europe/Moscow:20261118T090000
