@@ -15,7 +15,7 @@
  *    чтения, в неё нельзя писать, и скрипт ведёт отдельный свой календарь «Family Hub (мост)»;
  *  - календарь первой версии скрипта («Family Hub») переименовывается, а не плодит двойника;
  *  - сводку и ссылку на календарь видно на вкладке «Выполнения» (console.log), а не только
- *    в панели «Журнал выполнения» редактора;
+ *    в панели «Журнал выполнения» редактора; при этом каждая строка печатается один раз;
  *  - в журнал не попадают названия семейных событий (только счётчики).
  */
 import { describe, expect, it } from 'vitest';
@@ -197,6 +197,8 @@ interface SandboxOptions {
   logs?: string[];
   /** Вкладка «Выполнения», Executions (console.log) — сюда владелец и смотрит. */
   cloudLogs?: string[];
+  /** Старое окружение без console: тогда журнал должен работать через Logger. */
+  consoleBroken?: boolean;
 }
 
 function loadBridge({
@@ -205,6 +207,7 @@ function loadBridge({
   account = new FakeAccount(),
   logs = [],
   cloudLogs = [],
+  consoleBroken = false,
 }: SandboxOptions) {
   const CalendarApp = {
     getDefaultCalendar: () => account.owned()[0] ?? account.createCalendar('Основной'),
@@ -227,7 +230,8 @@ function loadBridge({
   const Utilities = { parseDate: parseDateMock };
   const Session = { getScriptTimeZone: () => 'Europe/Moscow' };
   const Logger = { log: (message: string) => logs.push(String(message)) };
-  const consoleMock = { log: (message: string) => cloudLogs.push(String(message)) };
+  // Без console (старое окружение) скрипт обязан писать в Logger, а не падать.
+  const consoleMock = consoleBroken ? {} : { log: (message: string) => cloudLogs.push(String(message)) };
   const ScriptApp = {
     newTrigger: () => ({ timeBased: () => ({ everyMinutes: () => ({ create: () => ({ getUniqueId: () => 't1' }) }) }) }),
   };
@@ -549,9 +553,11 @@ describe('мост Family Hub → Google Календарь', () => {
 
   it('сводку и ссылку на календарь видно на вкладке «Выполнения» (console.log)', () => {
     const cloudLogs: string[] = [];
+    const logs: string[] = [];
     const bridge = loadBridge({
       respond: network(calendar([vevent({ uid: 'deadline-1@family-hub.local', summary: 'Документ' })])),
       cloudLogs,
+      logs,
     });
     bridge.syncFamilyHub();
 
@@ -560,6 +566,23 @@ describe('мост Family Hub → Google Календарь', () => {
     expect(text).toContain('создано 1');
     expect(text).toContain('календарь «Family Hub (мост)»');
     expect(text).toContain('calendar.google.com/calendar/u/0/r?cid=bridge%40group.calendar.google.com');
+    // Пишем в один журнал, а не в оба: иначе в панели «Журнал выполнения» каждая строка
+    // показывается дважды — она собирает и console, и Logger (видели у владельца 06.10.2026).
+    expect(logs).toHaveLength(0);
+  });
+
+  it('в старом окружении без console сводка идёт в Logger, а не теряется', () => {
+    const logs: string[] = [];
+    const bridge = loadBridge({
+      respond: network(calendar([vevent({ uid: 'deadline-1@family-hub.local', summary: 'Документ' })])),
+      logs,
+      consoleBroken: true,
+    });
+
+    const summary = bridge.syncFamilyHub();
+
+    expect(summary).toContain('создано 1');
+    expect(logs.join('\n')).toContain('создано 1');
   });
 
   it('подписку по URL не трогает: пишет в свой отдельный календарь', () => {
