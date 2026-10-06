@@ -499,6 +499,8 @@ describe('лента в Настройках', () => {
     expect(within(sheet).queryByText(/ICSx5|F-Droid/u)).toBeNull();
     expect(within(sheet).getAllByText(/мост/u).length).toBeGreaterThan(0);
     expect(within(sheet).getByText(/docs\/GOOGLE-BRIDGE\.md/u)).toBeTruthy();
+    // Владельцу важно знать: мост не зависит от приложения на телефоне.
+    expect(within(sheet).getByText(/не зависит от\s+приложения/u)).toBeTruthy();
     expect(within(sheet).getByText(/Удалить будильники/u)).toBeTruthy();
     expect(within(sheet).getByText(/только исполнитель/u)).toBeTruthy();
   });
