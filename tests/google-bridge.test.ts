@@ -10,7 +10,12 @@
  *  - повторный запуск ничего не переписывает (телефон не дёргается зря);
  *  - правка и удаление в Family Hub отражаются в Google;
  *  - недоступная лента НИЧЕГО не удаляет — ни когда файл не скачался, ни когда не удалось
- *    получить список файлов;
+ *    получить список файлов (тогда помогает сохранённый список файлов);
+ *  - подписка по URL («Family Hub» из «Других календарей») НЕ трогается: она только для
+ *    чтения, в неё нельзя писать, и скрипт ведёт отдельный свой календарь «Family Hub (мост)»;
+ *  - календарь первой версии скрипта («Family Hub») переименовывается, а не плодит двойника;
+ *  - сводку и ссылку на календарь видно на вкладке «Выполнения» (console.log), а не только
+ *    в панели «Журнал выполнения» редактора;
  *  - в журнал не попадают названия семейных событий (только счётчики).
  */
 import { describe, expect, it } from 'vitest';
@@ -76,14 +81,46 @@ class FakeEvent {
 /** Календарь живёт между запусками — как настоящий календарь владельца. */
 class FakeCalendar {
   name: string;
+  /** Подписка по URL — чужой календарь: в него писать нельзя. */
+  readonly owned: boolean;
+  id: string;
+  description = '';
   events = new Map<string, FakeEvent>();
   private seq = 0;
 
-  constructor(name: string) {
+  constructor(name: string, options: { owned?: boolean; id?: string } = {}) {
     this.name = name;
+    this.owned = options.owned ?? true;
+    this.id = options.id ?? 'bridge@group.calendar.google.com';
+  }
+
+  private guard() {
+    if (!this.owned) throw new Error('Это подписка: писать в неё нельзя.');
+  }
+
+  getName() {
+    return this.name;
+  }
+  setName(name: string) {
+    this.guard();
+    this.name = name;
+  }
+  getId() {
+    return this.id;
+  }
+  getDescription() {
+    return this.description;
+  }
+  setDescription(description: string) {
+    this.guard();
+    this.description = description;
+  }
+  isOwnedByMe() {
+    return this.owned;
   }
 
   private put(title: string, start: Date, end: Date): FakeEvent {
+    this.guard();
     this.seq += 1;
     const event = new FakeEvent(`ev-${this.seq}`, title, start, end);
     this.events.set(event.id, event);
@@ -102,6 +139,33 @@ class FakeCalendar {
   }
   live() {
     return [...this.events.values()].filter((event) => !event.removed);
+  }
+}
+
+/**
+ * Календари владельца: свои (в них пишем) и подписки по URL (только чтение). Живут между
+ * запусками, как настоящий аккаунт.
+ */
+class FakeAccount {
+  calendars: FakeCalendar[];
+
+  constructor(calendars: FakeCalendar[] = [new FakeCalendar('Family Hub (мост)')]) {
+    this.calendars = calendars;
+  }
+
+  getCalendarsByName(name: string) {
+    return this.calendars.filter((calendar) => calendar.getName() === name);
+  }
+  createCalendar(name: string) {
+    const created = new FakeCalendar(name);
+    this.calendars.push(created);
+    return created;
+  }
+  owned() {
+    return this.calendars.filter((calendar) => calendar.isOwnedByMe());
+  }
+  byName(name: string) {
+    return this.calendars.filter((calendar) => calendar.getName() === name);
   }
 }
 
@@ -127,16 +191,25 @@ interface SandboxOptions {
   respond: (url: string) => string | Error;
   /** Общее хранилище настроек: переживает между запусками, как настоящие Script Properties. */
   properties?: Map<string, string>;
-  /** Календарь владельца: переживает между запусками. */
-  calendar?: FakeCalendar;
+  /** Календари владельца: переживают между запусками. */
+  account?: FakeAccount;
+  /** Панель «Журнал выполнения» редактора (Logger.log). */
   logs?: string[];
+  /** Вкладка «Выполнения», Executions (console.log) — сюда владелец и смотрит. */
+  cloudLogs?: string[];
 }
 
-function loadBridge({ respond, properties = new Map(), calendar = new FakeCalendar('Family Hub'), logs = [] }: SandboxOptions) {
+function loadBridge({
+  respond,
+  properties = new Map(),
+  account = new FakeAccount(),
+  logs = [],
+  cloudLogs = [],
+}: SandboxOptions) {
   const CalendarApp = {
-    getDefaultCalendar: () => calendar,
-    getCalendarsByName: (name: string) => (name === calendar.name ? [calendar] : []),
-    createCalendar: (name: string) => new FakeCalendar(name),
+    getDefaultCalendar: () => account.owned()[0] ?? account.createCalendar('Основной'),
+    getCalendarsByName: (name: string) => account.getCalendarsByName(name),
+    createCalendar: (name: string) => account.createCalendar(name),
   };
   const PropertiesService = {
     getScriptProperties: () => ({
@@ -154,6 +227,7 @@ function loadBridge({ respond, properties = new Map(), calendar = new FakeCalend
   const Utilities = { parseDate: parseDateMock };
   const Session = { getScriptTimeZone: () => 'Europe/Moscow' };
   const Logger = { log: (message: string) => logs.push(String(message)) };
+  const consoleMock = { log: (message: string) => cloudLogs.push(String(message)) };
   const ScriptApp = {
     newTrigger: () => ({ timeBased: () => ({ everyMinutes: () => ({ create: () => ({ getUniqueId: () => 't1' }) }) }) }),
   };
@@ -170,6 +244,7 @@ function loadBridge({ respond, properties = new Map(), calendar = new FakeCalend
     'Session',
     'Logger',
     'ScriptApp',
+    'console',
     `${code}\nreturn { syncFamilyHub, installTrigger };`,
   ) as (
     calendarApp: unknown,
@@ -179,9 +254,29 @@ function loadBridge({ respond, properties = new Map(), calendar = new FakeCalend
     session: unknown,
     logger: unknown,
     scriptApp: unknown,
+    consoleMock: unknown,
   ) => { syncFamilyHub: () => string; installTrigger: () => void };
-  const api = build(CalendarApp, PropertiesService, UrlFetchApp, Utilities, Session, Logger, ScriptApp);
-  return { ...api, calendar, properties, logs };
+  const api = build(
+    CalendarApp,
+    PropertiesService,
+    UrlFetchApp,
+    Utilities,
+    Session,
+    Logger,
+    ScriptApp,
+    consoleMock,
+  );
+  return {
+    ...api,
+    account,
+    properties,
+    logs,
+    cloudLogs,
+    /** Календарь, в который пишет мост (как его видит владелец в «Моих календарях»). */
+    get calendar(): FakeCalendar {
+      return account.calendars.find((item) => item.getName() === 'Family Hub (мост)') ?? account.owned()[0]!;
+    },
+  };
 }
 
 /* ---------------------------------- вымышленная лента ---------------------------------- */
@@ -292,10 +387,14 @@ describe('мост Family Hub → Google Календарь', () => {
   it('повторный запуск ничего не перезаписывает', () => {
     const ics = calendar([vevent({ uid: 'deadline-1@family-hub.local', summary: 'Документ', alarms: ['PT0S'] })]);
     const properties = new Map<string, string>();
-    const calendarMock = new FakeCalendar('Family Hub');
+    const calendarMock = new FakeCalendar('Family Hub (мост)');
 
-    loadBridge({ respond: network(ics), properties, calendar: calendarMock }).syncFamilyHub();
-    const summary = loadBridge({ respond: network(ics), properties, calendar: calendarMock }).syncFamilyHub();
+    loadBridge({ respond: network(ics), properties, account: new FakeAccount([calendarMock]) }).syncFamilyHub();
+    const summary = loadBridge({
+      respond: network(ics),
+      properties,
+      account: new FakeAccount([calendarMock]),
+    }).syncFamilyHub();
 
     expect(summary).toContain('создано 0');
     expect(summary).toContain('без изменений 1');
@@ -304,7 +403,8 @@ describe('мост Family Hub → Google Календарь', () => {
 
   it('правка и удаление в Family Hub отражаются: название меняется, лишнее уходит', () => {
     const properties = new Map<string, string>();
-    const calendarMock = new FakeCalendar('Family Hub');
+    const calendarMock = new FakeCalendar('Family Hub (мост)');
+    const account = new FakeAccount([calendarMock]);
 
     loadBridge({
       respond: network(
@@ -319,7 +419,7 @@ describe('мост Family Hub → Google Календарь', () => {
         ]),
       ),
       properties,
-      calendar: calendarMock,
+      account,
     }).syncFamilyHub();
 
     const summary = loadBridge({
@@ -335,7 +435,7 @@ describe('мост Family Hub → Google Календарь', () => {
         ]),
       ),
       properties,
-      calendar: calendarMock,
+      account,
     }).syncFamilyHub();
 
     expect(calendarMock.live().map((event) => event.title).sort()).toEqual(['Добавлено', 'Новое название']);
@@ -346,15 +446,16 @@ describe('мост Family Hub → Google Календарь', () => {
 
   it('недоступный файл ленты ничего не удаляет', () => {
     const properties = new Map<string, string>();
-    const calendarMock = new FakeCalendar('Family Hub');
+    const calendarMock = new FakeCalendar('Family Hub (мост)');
+    const account = new FakeAccount([calendarMock]);
     const good = calendar([vevent({ uid: 'deadline-1@family-hub.local', summary: 'Документ' })]);
 
-    loadBridge({ respond: network(good), properties, calendar: calendarMock }).syncFamilyHub();
+    loadBridge({ respond: network(good), properties, account }).syncFamilyHub();
 
     const summary = loadBridge({
       respond: (url) => (url.includes('api.github.com') ? network(good)(url) : new Error('network')),
       properties,
-      calendar: calendarMock,
+      account,
     }).syncFamilyHub();
 
     expect(summary).toContain('лент 1');
@@ -366,18 +467,43 @@ describe('мост Family Hub → Google Календарь', () => {
 
   it('если список файлов ленты не получен — ничего не удаляем', () => {
     const properties = new Map<string, string>();
-    const calendarMock = new FakeCalendar('Family Hub');
+    const calendarMock = new FakeCalendar('Family Hub (мост)');
+    const account = new FakeAccount([calendarMock]);
     const good = calendar([vevent({ uid: 'deadline-1@family-hub.local', summary: 'Документ' })]);
 
-    loadBridge({ respond: network(good), properties, calendar: calendarMock }).syncFamilyHub();
+    loadBridge({ respond: network(good), properties, account }).syncFamilyHub();
 
     const summary = loadBridge({
       respond: () => new Error('network'),
       properties,
-      calendar: calendarMock,
+      account,
     }).syncFamilyHub();
 
-    expect(summary).toContain('лент 0');
+    // Список файлов недоступен — берём сохранённый из памяти скрипта, поэтому лент 1,
+    // но скачать файл тоже не удалось: «не прочитано: 1», и ничего не удаляем.
+    expect(summary).toContain('лент 1');
+    expect(summary).toContain('не прочитано: 1');
+    expect(summary).toContain('удалено 0');
+    expect(calendarMock.live()).toHaveLength(1);
+  });
+
+  it('если GitHub не ответил, файлы ленты всё равно читаются по сохранённому списку', () => {
+    const properties = new Map<string, string>();
+    const calendarMock = new FakeCalendar('Family Hub (мост)');
+    const account = new FakeAccount([calendarMock]);
+    const good = calendar([vevent({ uid: 'deadline-1@family-hub.local', summary: 'Документ' })]);
+
+    loadBridge({ respond: network(good), properties, account }).syncFamilyHub();
+
+    const summary = loadBridge({
+      respond: (url) => (url.includes('api.github.com') ? new Error('rate limit') : good),
+      properties,
+      account,
+    }).syncFamilyHub();
+
+    expect(summary).toContain('лент 1');
+    expect(summary).toContain('не прочитано: 0');
+    expect(summary).toContain('без изменений 1');
     expect(summary).toContain('удалено 0');
     expect(calendarMock.live()).toHaveLength(1);
   });
@@ -409,14 +535,67 @@ describe('мост Family Hub → Google Календарь', () => {
 
   it('в журнал не попадают названия семейных событий', () => {
     const logs: string[] = [];
+    const cloudLogs: string[] = [];
     const bridge = loadBridge({
       respond: network(calendar([vevent({ uid: 'deadline-1@family-hub.local', summary: 'Секретное название' })])),
       logs,
+      cloudLogs,
     });
     bridge.syncFamilyHub();
-    const text = logs.join('\n');
+    const text = [...logs, ...cloudLogs].join('\n');
     expect(text).not.toContain('Секретное название');
     expect(text).toContain('создано 1');
+  });
+
+  it('сводку и ссылку на календарь видно на вкладке «Выполнения» (console.log)', () => {
+    const cloudLogs: string[] = [];
+    const bridge = loadBridge({
+      respond: network(calendar([vevent({ uid: 'deadline-1@family-hub.local', summary: 'Документ' })])),
+      cloudLogs,
+    });
+    bridge.syncFamilyHub();
+
+    const text = cloudLogs.join('\n');
+    // Именно эту вкладку открывает владелец: раньше там были только «started / completed».
+    expect(text).toContain('создано 1');
+    expect(text).toContain('календарь «Family Hub (мост)»');
+    expect(text).toContain('calendar.google.com/calendar/u/0/r?cid=bridge%40group.calendar.google.com');
+  });
+
+  it('подписку по URL не трогает: пишет в свой отдельный календарь', () => {
+    // Владелец добавил ленту «Добавить по URL» — в списке календарей она тоже «Family Hub»,
+    // но писать в неё нельзя. Раньше скрипт мог принять её за свой календарь и молча ничего
+    // не делать; теперь он её пропускает и заводит «Family Hub (мост)».
+    const subscription = new FakeCalendar('Family Hub', { owned: false });
+    const account = new FakeAccount([subscription]);
+    const bridge = loadBridge({
+      respond: network(calendar([vevent({ uid: 'deadline-1@family-hub.local', summary: 'Документ' })])),
+      account,
+    });
+
+    const summary = bridge.syncFamilyHub();
+
+    expect(subscription.getName()).toBe('Family Hub');
+    expect(subscription.live()).toHaveLength(0);
+    expect(account.byName('Family Hub (мост)')).toHaveLength(1);
+    expect(account.byName('Family Hub (мост)')[0]?.live()).toHaveLength(1);
+    expect(summary).toContain('создано 1');
+  });
+
+  it('календарь первой версии переименовывается, а не остаётся двойником', () => {
+    const legacy = new FakeCalendar('Family Hub');
+    const account = new FakeAccount([legacy]);
+    const bridge = loadBridge({
+      respond: network(calendar([vevent({ uid: 'deadline-1@family-hub.local', summary: 'Документ' })])),
+      account,
+    });
+
+    bridge.syncFamilyHub();
+
+    expect(account.owned()).toHaveLength(1);
+    expect(legacy.getName()).toBe('Family Hub (мост)');
+    expect(legacy.live()).toHaveLength(1);
+    expect(account.byName('Family Hub')).toHaveLength(0);
   });
 
   it('событие без названия или без даты пропускается, а не ломает цикл', () => {

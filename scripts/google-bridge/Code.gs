@@ -11,8 +11,12 @@
  * ЧТО ДЕЛАЕТ. Этот скрипт запускается в аккаунте владельца по расписанию Google
  * (бесплатно, без серверов и приложений на телефоне): скачивает файлы ленты из
  * публичной ветки `feed` репозитория FAMILY-HUB и «переносит» события в обычный
- * Google-календарь (по умолчанию — отдельный «Family Hub»). Для телефона это уже
+ * Google-календарь (по умолчанию — отдельный «Family Hub (мост)»). Для телефона это уже
  * родные события Google, поэтому они синхронизируются как любые другие.
+ *
+ *  ПОДПИСКА ПО URL И КАЛЕНДАРЬ СКРИПТА — РАЗНОЕ. Подписка («Добавить по URL», раздел
+ * «Другие календари») доступна только для чтения: события из неё не попадают в память
+ * телефона, и писать в неё нельзя. Скрипт её пропускает и ведёт отдельный свой календарь.
  *
  * ЧЕГО НЕ ДЕЛАЕТ. Не читает семейное хранилище (только публичные файлы ленты), не шлёт
  * уведомлений, не трогает календарь владельца дальше выбранного календаря, никому не
@@ -29,12 +33,28 @@
  *  - выключенный в приложении раздел публикуется пустым файлом — значит, его события
  *    из Google-календаря тоже уйдут (так и задумано).
  *
- * НАСТРОЙКА (подробно — docs/GOOGLE-BRIDGE.md):
+ *  НАСТРОЙКА (подробно — docs/GOOGLE-BRIDGE.md):
  *  1. script.google.com → новый проект → вставить весь этот файл.
  *  2. Выполнить функцию `syncFamilyHub` один раз → разрешить доступ к Календарю.
+ *     На экране разрешений — «Выбрать все»: календари, внешний сервис, работа без вас.
  *  3. Триггеры (часы) → добавить → `syncFamilyHub` → «По минутам» → каждые 15 минут.
- * Проверка: в Google-календаре появится календарь «Family Hub».
+ *
+ * ПРОВЕРКА. После запуска откройте вкладку «Выполнения» (Executions) — там появятся строки
+ * вида «Family Hub → Google: календарь «Family Hub (мост)», создано 5, …» и ссылка на
+ * календарь. Сам календарь — в списке «Мои календари» в calendar.google.com; подписка
+ * по URL («Family Hub» без пометки) — другой пункт, её не трогаем и не удаляем.
  */
+
+/**
+ * Пишем сразу в оба журнала. `console.log` виден на вкладке «Выполнения» (Executions) —
+ * именно её открывают, чтобы посмотреть, что произошло; `Logger.log` — в панели
+ * «Журнал выполнения» под редактором. Раньше был только Logger.log, и на «Выполнениях»
+ * владелец видел лишь «started / completed», без сводки.
+ */
+function say_(message) {
+  console.log(message);
+  Logger.log(message);
+}
 
 /** Репозиторий и ветка, где лежит лента. Меняются только при смене проекта. */
 var FEED_OWNER = 'Help-yourself-dvp';
@@ -48,8 +68,19 @@ var FEED_BRANCH = 'feed';
  */
 var FEED_URLS = [];
 
-/** Календарь, в который переносим события. Пустая строка — основной календарь аккаунта. */
-var CALENDAR_NAME = 'Family Hub';
+/**
+ * Календарь, в который переносим события. Пустая строка — основной календарь аккаунта.
+ *
+ * Имя нарочно отличается от «Family Hub» у подписки по URL: подписка и календарь скрипта
+ * иначе выглядят как два одинаковых пункта в списке, и непонятно, какой из них настоящий.
+ */
+var CALENDAR_NAME = 'Family Hub (мост)';
+
+/** Имя календаря первой версии скрипта: переносим его, чтобы не осталось двойника. */
+var LEGACY_CALENDAR_NAME = 'Family Hub';
+
+/** Где помним список файлов ленты, если GitHub в этот момент не ответил. */
+var FEEDS_CACHE_KEY = 'family_hub_feeds_v1';
 
 /** Где храним соответствие «событие ленты → событие Google». */
 var STORAGE_KEY = 'family_hub_map_v1';
@@ -92,12 +123,12 @@ function syncFamilyHub() {
       text = UrlFetchApp.fetch(feed.url, { muteHttpExceptions: true }).getContentText();
     } catch (error) {
       stats.failed += 1;
-      Logger.log('Лента «' + feed.name + '»: не скачалась, её события не трогаем');
+      say_('Лента «' + feed.name + '»: не скачалась, её события не трогаем');
       return;
     }
     if (!text || text.indexOf('BEGIN:VCALENDAR') < 0) {
       stats.failed += 1;
-      Logger.log('Лента «' + feed.name + '»: файл без календаря, её события не трогаем');
+      say_('Лента «' + feed.name + '»: файл без календаря, её события не трогаем');
       return;
     }
     readFeeds[feed.key] = true;
@@ -162,7 +193,9 @@ function syncFamilyHub() {
   writeMap_(props, map);
 
   var summary =
-    'Family Hub → Google: создано ' +
+    'Family Hub → Google: календарь «' +
+    calendar.getName() +
+    '», создано ' +
     stats.created +
     ', обновлено ' +
     stats.updated +
@@ -178,7 +211,8 @@ function syncFamilyHub() {
     stats.failed +
     ')' +
     (stats.alarmsSkipped > 0 ? ', будильников длиннее 4 недель перенесено без звонка: ' + stats.alarmsSkipped : '');
-  Logger.log(summary);
+  say_(summary);
+  say_('Найти календарь: ' + calendarLink_(calendar));
   return summary;
 }
 
@@ -188,9 +222,58 @@ function syncFamilyHub() {
 
 function targetCalendar_() {
   if (!CALENDAR_NAME) return CalendarApp.getDefaultCalendar();
-  var existing = CalendarApp.getCalendarsByName(CALENDAR_NAME);
-  if (existing && existing.length > 0) return existing[0];
-  return CalendarApp.createCalendar(CALENDAR_NAME);
+
+  var existing = calendarsByName_(CALENDAR_NAME);
+  if (existing.length > 0) return existing[0];
+
+  // Календарь первой версии скрипта назывался «Family Hub». Если он есть — переименовываем
+  // (события и соответствия остаются на месте) вместо создания второго календаря.
+  var legacy = calendarsByName_(LEGACY_CALENDAR_NAME);
+  if (legacy.length > 0) {
+    try {
+      legacy[0].setName(CALENDAR_NAME);
+      say_('Календарь «' + LEGACY_CALENDAR_NAME + '» переименован в «' + CALENDAR_NAME + '».');
+    } catch (error) {
+      say_('Календарь «' + LEGACY_CALENDAR_NAME + '» оставлен как есть: переименовать не удалось.');
+    }
+    return legacy[0];
+  }
+
+  var created = CalendarApp.createCalendar(CALENDAR_NAME);
+  try {
+    created.setDescription(
+      'События из ленты Family Hub. Заполняется скриптом — сроки правьте в приложении Family Hub.',
+    );
+  } catch (error) {
+    // Описание — украшение: не дали — работаем без него.
+  }
+  say_('Создан календарь «' + CALENDAR_NAME + '».');
+  return created;
+}
+
+/**
+ * Календари с таким именем, которыми владелец распоряжается сам. Подписка «Добавить по URL»
+ * тоже может называться «Family Hub», но она только для чтения: писать в неё нельзя, и
+ * раньше скрипт мог принять её за свой календарь (события не появлялись). Такие пропускаем.
+ */
+function calendarsByName_(name) {
+  if (!name) return [];
+  return CalendarApp.getCalendarsByName(name).filter(function (calendar) {
+    try {
+      return calendar.isOwnedByMe();
+    } catch (error) {
+      return true;
+    }
+  });
+}
+
+/** Ссылка, по которой владелец откроет календарь в браузере (для журнала). */
+function calendarLink_(calendar) {
+  try {
+    return 'https://calendar.google.com/calendar/u/0/r?cid=' + encodeURIComponent(calendar.getId());
+  } catch (error) {
+    return '(ссылка недоступна)';
+  }
 }
 
 /**
@@ -206,6 +289,8 @@ function feeds_() {
     });
   }
 
+  var props = PropertiesService.getScriptProperties();
+  var cached = readFeedsCache_(props);
   var response;
   try {
     response = UrlFetchApp.fetch(
@@ -218,12 +303,19 @@ function feeds_() {
       { muteHttpExceptions: true, headers: { Accept: 'application/vnd.github+json' } },
     );
   } catch (error) {
-    Logger.log('Список файлов ленты не получен');
-    return [];
+    say_(
+      'Список файлов ленты не получен (сеть).' +
+        (cached.length > 0 ? ' Беру сохранённый список: файлов ' + cached.length + '.' : ''),
+    );
+    return cached;
   }
   if (response.getResponseCode() !== 200) {
-    Logger.log('Список файлов ленты: HTTP ' + response.getResponseCode());
-    return [];
+    say_(
+      'Список файлов ленты: HTTP ' +
+        response.getResponseCode() +
+        (cached.length > 0 ? ' — беру сохранённый список: файлов ' + cached.length + '.' : '.'),
+    );
+    return cached;
   }
 
   var files = [];
@@ -232,7 +324,10 @@ function feeds_() {
   } catch (error) {
     files = [];
   }
-  if (!files || !files.length) return [];
+  if (!files || !files.length) {
+    say_('В ветке ' + FEED_BRANCH + ' нет файлов ленты.' + (cached.length > 0 ? ' Беру сохранённый список.' : ''));
+    return cached;
+  }
 
   var feeds = [];
   files.forEach(function (file) {
@@ -252,7 +347,35 @@ function feeds_() {
           file.name,
     });
   });
+  if (feeds.length === 0) {
+    say_('Файлов .ics в ветке ' + FEED_BRANCH + ' нет.' + (cached.length > 0 ? ' Беру сохранённый список.' : ''));
+    return cached;
+  }
+  say_('Файлов ленты: ' + feeds.length + '.');
+  writeFeedsCache_(props, feeds);
   return feeds;
+}
+
+/**
+ * Список файлов ленты из памяти скрипта. Нужен на случай, когда api.github.com не ответил
+ * (у него есть предел запросов на общий адрес Google): тогда работаем по прошлому списку,
+ * а не остаёмся с нулём лент. Файлы всё равно скачиваются заново — данные не устаревают.
+ */
+function readFeedsCache_(props) {
+  try {
+    var parsed = JSON.parse(props.getProperty(FEEDS_CACHE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function writeFeedsCache_(props, feeds) {
+  try {
+    props.setProperty(FEEDS_CACHE_KEY, JSON.stringify(feeds));
+  } catch (error) {
+    // Память — подстраховка: не сохранилось, значит в следующий раз попробуем снова.
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -416,5 +539,5 @@ function writeMap_(props, map) {
  */
 function installTrigger() {
   var created = ScriptApp.newTrigger('syncFamilyHub').timeBased().everyMinutes(15).create();
-  Logger.log('Триггер «каждые 15 минут» создан: ' + created.getUniqueId());
+  say_('Триггер «каждые 15 минут» создан: ' + created.getUniqueId());
 }
