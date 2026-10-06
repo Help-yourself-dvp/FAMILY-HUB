@@ -484,13 +484,23 @@ describe('лента в Настройках', () => {
     expect(await screen.findByText(/скопируйте вручную/u)).toBeTruthy();
   });
 
-  it('подсказка честно говорит про обновление раз в часы и «Удалить будильники»', async () => {
+  it('подсказка честно говорит про синхронизацию Google, задержку и «Удалить будильники»', async () => {
     render(<FeedSubscriptionSection />);
     await userEvent.click(await screen.findByRole('button', { name: 'Как подписаться' }));
     const sheet = await screen.findByRole('dialog', { name: 'Лента: как это работает' });
     expect(within(sheet).getByText(/Подписной\s+календарь/u)).toBeTruthy();
     expect(within(sheet).getByText(/Добавить по URL/u)).toBeTruthy();
-    expect(within(sheet).getByText(/часы, иногда сутки/u)).toBeTruthy();
+    expect(within(sheet).getAllByText(/12–24 часа/u).length).toBeGreaterThan(0);
+    // Главная причина «в Google видно, на телефоне нет»: у подписки по URL не включена
+    // синхронизация с устройствами — в подсказке должна быть страница Google и путь в приложении.
+    expect(within(sheet).getByText(/syncselect/u)).toBeTruthy();
+    // Решение владельца 06.10.2026: сторонних приложений календаря не предлагать —
+    // вместо них «мост» в его Google-аккаунте (инструкция в репозитории).
+    expect(within(sheet).queryByText(/ICSx5|F-Droid/u)).toBeNull();
+    expect(within(sheet).getAllByText(/мост/u).length).toBeGreaterThan(0);
+    expect(within(sheet).getByText(/docs\/GOOGLE-BRIDGE\.md/u)).toBeTruthy();
+    // Владельцу важно знать: мост не зависит от приложения на телефоне.
+    expect(within(sheet).getByText(/не зависит от\s+приложения/u)).toBeTruthy();
     expect(within(sheet).getByText(/Удалить будильники/u)).toBeTruthy();
     expect(within(sheet).getByText(/только исполнитель/u)).toBeTruthy();
   });
