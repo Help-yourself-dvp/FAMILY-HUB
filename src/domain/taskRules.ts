@@ -55,3 +55,38 @@ export function homeTaskList(tasks: Task[], datedLimit = 3, undatedLimit = 3): T
     .slice(0, undatedLimit);
   return [...dated, ...undated];
 }
+
+/** Сортировка дел (просьба владельца 06.10.2026: не только по сроку). */
+export type TaskSort = 'due' | 'assignee' | 'title' | 'created';
+
+export const TASK_SORT_LABEL: Record<TaskSort, string> = {
+  due: 'По сроку',
+  assignee: 'По исполнителю',
+  title: 'По названию',
+  created: 'Сначала новые',
+};
+
+/**
+ * Порядок открытых дел. Имя исполнителя передаёт экран (`assigneeName`): домен не знает
+ * про базу участников. Внутри группы — `compareOpenTasks`, чтобы порядок был
+ * детерминированным и одинаковым на телефонах.
+ */
+export function sortOpenTasks(
+  tasks: Task[],
+  sort: TaskSort,
+  assigneeName: (id: string | null) => string,
+): Task[] {
+  const copy = [...tasks];
+  switch (sort) {
+    case 'assignee':
+      return copy.sort(
+        (a, b) => assigneeName(a.assigneeId).localeCompare(assigneeName(b.assigneeId), 'ru') || compareOpenTasks(a, b),
+      );
+    case 'title':
+      return copy.sort((a, b) => a.title.localeCompare(b.title, 'ru') || compareOpenTasks(a, b));
+    case 'created':
+      return copy.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+    default:
+      return copy.sort(compareOpenTasks);
+  }
+}
