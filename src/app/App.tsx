@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { HashRouter, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Icon, Sheet, type IconName } from '../design/ui';
 import { useSyncState } from './hooks';
-import { PHASE_LABEL } from '../data/sync/state';
+import { phaseLabel } from '../data/sync/state';
 import { flushNow } from '../data/sync/engine';
 import { ErrorBoundary } from './ErrorBoundary';
 import HomeScreen from '../features/home/HomeScreen';
@@ -15,6 +15,9 @@ import ShoppingScreen from '../features/shopping/ShoppingScreen';
 import TasksScreen from '../features/tasks/TasksScreen';
 import DeadlinesScreen from '../features/deadlines/DeadlinesScreen';
 import SettingsScreen from '../features/settings/SettingsScreen';
+import MoreScreen from '../features/more/MoreScreen';
+import HelpScreen from '../features/more/HelpScreen';
+import AboutScreen from '../features/more/AboutScreen';
 
 const TABS: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/', label: 'Главная', icon: 'home' },
@@ -90,6 +93,9 @@ function ShellInner({ ready, updatedFrom }: { ready: boolean; updatedFrom: strin
               }
             />
             <Route path="/settings" element={<SettingsScreen ready={ready} />} />
+            <Route path="/more" element={<MoreScreen />} />
+            <Route path="/help" element={<HelpScreen />} />
+            <Route path="/about" element={<AboutScreen />} />
             <Route path="*" element={<HomeScreen ready={ready} />} />
           </Routes>
           {/* key по маршруту: sheet закрывается при навигации без setState в эффекте */}
@@ -115,7 +121,8 @@ function TabBar() {
       {TABS.slice(2).map((t) => (
         <TabItem key={t.to} {...t} />
       ))}
-      <NavLink to="/settings" className="tab" aria-label="Настройки" title="Настройки">
+      {/* «Ещё» — хаб (Настройки · Справка · О приложении), решение владельца 07.10.2026. */}
+      <NavLink to="/more" className="tab" aria-label="Ещё" title="Ещё">
         <Icon name="gear" />
         <span>Ещё</span>
       </NavLink>
@@ -137,9 +144,10 @@ function QuickAddFab() {
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
   const loc = useLocation();
-  const onSettings = loc.pathname === '/settings';
+  // «Ещё», справка и «О приложении» — не про добавление записей: кнопки «+» там нет.
+  const quietRoute = ['/settings', '/more', '/help', '/about'].includes(loc.pathname);
 
-  if (onSettings) return null;
+  if (quietRoute) return null;
 
   const go = (path: string) => {
     setOpen(false);
@@ -223,6 +231,9 @@ const ROUTE_TITLES: Record<string, string> = {
   '/tasks': 'Дела',
   '/deadlines': 'Сроки',
   '/settings': 'Настройки',
+  '/more': 'Ещё',
+  '/help': 'Справка',
+  '/about': 'О приложении',
 };
 
 /**
@@ -259,7 +270,16 @@ const HELP_TEXTS: Record<string, string[]> = {
     'Удаление срока спрашивает подтверждение — сроки заведены один раз и надолго.',
   ],
   '/settings': [
-    'Подключение к семейному хранилищу, уведомления, данные устройства и диагностика. Здесь же видно версию приложения.',
+    'Профиль, хранилище семьи, уведомления, оформление и данные — каждая группа открывается нажатием. Подробности про синхронизацию и диагностику — в группе «Для разработчика».',
+  ],
+  '/more': [
+    'Сюда заходят редко: настройки, справка и сведения о приложении. Всё, что нужно каждый день, — на четырёх вкладках внизу.',
+  ],
+  '/help': [
+    'Короткие пояснения по разделам: покупки, дела, сроки, календарь телефона и синхронизация. Те же тексты открываются значком «i» в верхней панели раздела.',
+  ],
+  '/about': [
+    'Версия приложения, схема данных и «Для разработчика»: ссылка на код, хранилище семьи и диагностика.',
   ],
 };
 
@@ -310,25 +330,18 @@ function StatusPill() {
           : 'muted';
   const icon: IconName = s.online ? (s.phase === 'error' ? 'alert' : 'cloud') : 'cloud-off';
 
-  const label =
-    s.phase === 'not-configured'
-      ? 'Локальный режим'
-      : s.phase === 'offline'
-        ? s.pendingCount > 0
-          ? `Офлайн · ${s.pendingCount} в очереди`
-          : 'Офлайн'
-        : PHASE_LABEL[s.phase];
+  const label = phaseLabel(s.phase, s.pendingCount);
 
   const explanation =
     s.phase === 'not-configured'
-      ? 'Данные хранятся только на этом устройстве. Нажмите, чтобы подключить семейное хранилище.'
+      ? 'Данные хранятся только на этом телефоне. Нажмите, чтобы подключить семейное хранилище.'
       : s.phase === 'offline'
         ? s.pendingCount > 0
-          ? `Нет сети. Изменений ждут отправки: ${s.pendingCount}. Они уйдут сами, когда сеть появится.`
-          : 'Нет сети. Приложение работает офлайн.'
+          ? `Нет подключения. Изменений ждут отправки: ${s.pendingCount}. Они уйдут сами, когда появится интернет.`
+          : 'Нет подключения. Приложение работает без интернета, изменения уедут сами.'
         : s.phase === 'error'
-          ? 'Последняя синхронизация не удалась. Нажмите, чтобы открыть подробности.'
-          : 'Нажмите, чтобы синхронизировать сейчас.';
+          ? 'Последняя отправка не удалась. Нажмите, чтобы открыть подробности.'
+          : 'Нажмите, чтобы отправить изменения сейчас.';
 
   const onTap = () => {
     if (s.phase === 'not-configured' || s.phase === 'error') void nav('/settings');

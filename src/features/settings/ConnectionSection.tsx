@@ -212,7 +212,7 @@ export default function ConnectionSection() {
             ) : (
               <Banner tone="warn">
                 <div className="grow">
-                  <div className="strong">Локальный режим</div>
+                  <div className="strong">Хранилище не подключено</div>
                   <div className="small">
                     Приложение полностью работает, но данные видны только на этом устройстве. Чтобы
                     делиться списками с семьёй, подключите приватный репозиторий.

@@ -12,7 +12,7 @@ import { deadlineTone, TONE_TEXT_COLOR } from '../../domain/deadlineRules';
 import { HORIZON_LABEL, type Horizon } from '../../domain/types';
 import { Banner, Icon, Skeleton } from '../../design/ui';
 import { useSyncState } from '../../app/hooks';
-import { PHASE_LABEL } from '../../data/sync/state';
+import { phaseLabel } from '../../data/sync/state';
 import { homeTaskList, taskDateLabel } from '../../domain/taskRules';
 import { ACTIVITY_SORT_LABEL, sortActivity, type ActivitySort } from '../../domain/activityRules';
 
@@ -328,7 +328,7 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
       </section>
 
       <div className="tiny muted sync-line">
-        Синхронизация: {PHASE_LABEL[sync.phase]}
+        Синхронизация: {phaseLabel(sync.phase, sync.pendingCount)}
         {sync.pendingCount > 0 ? ` · не отправлено: ${sync.pendingCount}` : ''} ·{' '}
         <Link to="/settings">Настройки</Link>
       </div>

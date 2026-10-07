@@ -106,7 +106,7 @@ export default function TasksScreen({
       {!sync.configured && (
         <Banner tone="warn">
           <div className="grow">
-            <div className="strong">Локальный режим</div>
+            <div className="strong">Данные только на этом телефоне</div>
             <div className="small">
               Дела сохраняются на устройстве. Подключите семейное хранилище в настройках, чтобы
               список был общим.

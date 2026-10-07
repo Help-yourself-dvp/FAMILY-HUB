@@ -54,13 +54,19 @@ export function subscribeSync(fn: Listener): () => void {
   };
 }
 
+/**
+ * Простые формулировки состояния (просьба владельца 07.10.2026: без терминов).
+ * «Все изменения сохранены» — когда отправлять нечего; «Отправляем: N» — когда есть
+ * очередь; «Нет подключения» — вместо «Офлайн»; «Хранилище не подключено» — вместо
+ * «Локальный режим».
+ */
 export const PHASE_LABEL: Record<SyncPhase, string> = {
-  idle: 'Не синхронизировано',
-  offline: 'Нет сети',
-  syncing: 'Синхронизация…',
-  synced: 'Сохранено',
-  error: 'Ошибка синхронизации',
-  'not-configured': 'Локальный режим',
+  idle: 'Ждём отправки',
+  offline: 'Нет подключения',
+  syncing: 'Отправляем…',
+  synced: 'Все изменения сохранены',
+  error: 'Не удалось отправить',
+  'not-configured': 'Хранилище не подключено',
 };
 
 export const PHASE_TONE: Record<SyncPhase, 'ok' | 'warn' | 'err' | 'muted'> = {
@@ -71,3 +77,15 @@ export const PHASE_TONE: Record<SyncPhase, 'ok' | 'warn' | 'err' | 'muted'> = {
   error: 'err',
   'not-configured': 'muted',
 };
+
+/**
+ * Подпись состояния для человека, с числом, если оно есть: «Отправляем: 3»,
+ * «Ждём отправки: 2». Без числа — просто «Отправляем…» / «Ждём отправки».
+ */
+export function phaseLabel(phase: SyncPhase, pendingCount = 0): string {
+  const base = PHASE_LABEL[phase];
+  if (pendingCount <= 0) return base;
+  if (phase === 'syncing') return `Отправляем: ${pendingCount}`;
+  if (phase === 'idle') return `Ждём отправки: ${pendingCount}`;
+  return base;
+}

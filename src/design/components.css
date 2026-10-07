@@ -67,7 +67,9 @@
 .btn {
   appearance: none;
   border: 1px solid transparent;
-  border-radius: var(--r-pill);
+  /* Кнопка — мягкий прямоугольник, а не пилюля (0.6.24): пилюль на экране было слишком
+     много, а так кнопки отличаются от значков-статусов. Закругление как у полей ввода. */
+  border-radius: var(--r-md);
   min-height: var(--tap);
   padding: 0 var(--sp-5);
   display: inline-flex;

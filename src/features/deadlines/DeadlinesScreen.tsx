@@ -234,7 +234,7 @@ export default function DeadlinesScreen({
       {!sync.configured && (
         <Banner tone="warn">
           <div className="grow">
-            <div className="strong">Локальный режим</div>
+            <div className="strong">Данные только на этом телефоне</div>
             <div className="small">
               Сроки хранятся только на этом устройстве. Подключите семейное хранилище в настройках,
               чтобы напоминания были общими для всей семьи.

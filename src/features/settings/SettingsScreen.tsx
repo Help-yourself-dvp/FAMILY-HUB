@@ -1,8 +1,10 @@
 /**
- * Настройки (§24) + подключение к семейному репозиторию (§2.5) + Диагностика (§11).
+ * Настройки (§24) + подключение к семейному репозиторию (§2.5) + «Для разработчика» (§11).
  *
- * Самый важный экран ЭТАПА 1: именно здесь проверяется, работает ли синхронизация
- * между двумя телефонами. Секции вынесены в отдельные файлы (§6.18).
+ * Структура с 0.6.24 (просьба владельца 07.10.2026): группы по смыслу —
+ * «Профиль», «Семья и синхронизация», «Уведомления», «Оформление», «Данные»,
+ * «Для разработчика». Технические подробности (версия, схема, журнал, диагностика)
+ * живут в последней группе, чтобы не мешать обычной настройке.
  */
 import { useSyncLog, useSyncState } from '../../app/hooks';
 import { isIos, isStandalone } from '../../notifications/channels';
@@ -17,27 +19,49 @@ import NotificationsSection from './NotificationsSection';
 import DataSection from './DataSection';
 import DiagnosticsSection from './DiagnosticsSection';
 
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="stack" aria-label={title}>
+      <h2 className="section-title">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
 export default function SettingsScreen({ ready }: { ready: boolean }) {
   const sync = useSyncState();
   const entries = useSyncLog();
 
   return (
     <div className="screen">
-      <div className="screen-subtitle">
-        версия {__APP_VERSION__} · схема данных v{SCHEMA_VERSION}
-      </div>
+      <div className="screen-subtitle">версия {__APP_VERSION__}</div>
 
       {!ready && <Banner tone="warn">Инициализация…</Banner>}
 
-      <ProfileSection />
-      <ConnectionSection />
-      <SyncSection />
-      <ThemeSection />
-      <NotificationsSection />
-      <DataSection />
-      <DiagnosticsSection />
+      <Group title="Профиль">
+        <ProfileSection />
+      </Group>
 
-      <section className="stack">
+      <Group title="Семья и синхронизация">
+        <ConnectionSection />
+        <SyncSection />
+      </Group>
+
+      <Group title="Уведомления">
+        <NotificationsSection />
+      </Group>
+
+      <Group title="Оформление">
+        <ThemeSection />
+      </Group>
+
+      <Group title="Данные">
+        <DataSection />
+      </Group>
+
+      <Group title="Для разработчика">
+        <DiagnosticsSection />
+
         <details className="acc">
           <summary className="acc-summary">
             <span className="grow">Журнал синхронизации</span>
@@ -66,36 +90,21 @@ export default function SettingsScreen({ ready }: { ready: boolean }) {
             </div>
           </div>
         </details>
-      </section>
 
-      <section className="card stack">
-        <div className="row" style={{ gap: 8 }}>
-          <Icon name="info" size={16} />
-          <span className="strong small">О приложении</span>
-          <span className="badge" style={{ marginLeft: 'auto' }}>
-            версия {__APP_VERSION__}
-          </span>
+        <div className="card stack" style={{ gap: 6 }}>
+          <div className="small muted">
+            Схема данных v{SCHEMA_VERSION}
+            {isIos() ? ' · iOS' : ''}
+            {isStandalone() ? ' · PWA установлено' : ' · работает в браузере'}
+          </div>
+          <div className="tiny muted">
+            Family Hub {__APP_VERSION__}
+            {sync.rateRemaining !== null
+              ? ` · связь с хранилищем: запас ${sync.rateRemaining} из 5000 запросов в час`
+              : ''}
+          </div>
         </div>
-        <div className="tiny muted">
-          Family Hub — приватное семейное приложение: общий список покупок и напоминания о сроках.
-          Работает без интернета, синхронизируется через ваше личное хранилище GitHub, обновляется
-          само. Приложение не хранит номера документов, пароли и сканы: для напоминания достаточно
-          названия и даты.
-        </div>
-        <div className="tiny mono muted">
-          Схема данных v{SCHEMA_VERSION}
-          {isIos() ? ' · iOS' : ''}
-          {isStandalone() ? ' · PWA установлено' : ' · работает в браузере'}
-        </div>
-      </section>
-
-      <div style={{ height: 24 }} aria-hidden="true" />
-      <div className="tiny muted" style={{ textAlign: 'center' }}>
-        Family Hub {__APP_VERSION__}
-        {sync.rateRemaining !== null
-          ? ` · связь с хранилищем: запас ${sync.rateRemaining} из 5000 запросов в час (нам хватает с огромным запасом)`
-          : ''}
-      </div>
+      </Group>
     </div>
   );
 }

@@ -136,7 +136,7 @@ export default function ShoppingScreen({
       {!sync.configured && (
         <Banner tone="warn">
           <div className="grow">
-            <div className="strong">Локальный режим</div>
+            <div className="strong">Данные только на этом телефоне</div>
             <div className="small">
               Данные только на этом устройстве. Чтобы делиться списком с семьёй, подключите
               репозиторий в настройках.
