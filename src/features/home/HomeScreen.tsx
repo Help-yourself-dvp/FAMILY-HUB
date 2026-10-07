@@ -2,25 +2,29 @@
  * Главная — семейный dashboard (ТЗ §14: не перегружать).
  * На ЭТАПЕ 1 показывает реальные счётчики из локальной БД + «Семейную ленту».
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
 import { daysUntil, formatRu, humanizeDelta } from '../../domain/dateOnly';
-import { deadlineTone, TONE_COLOR } from '../../domain/deadlineRules';
+import { deadlineTone, TONE_TEXT_COLOR } from '../../domain/deadlineRules';
 import { HORIZON_LABEL, type Horizon } from '../../domain/types';
 import { Banner, Icon, Skeleton, Stat } from '../../design/ui';
 import { useSyncState } from '../../app/hooks';
 import { PHASE_LABEL } from '../../data/sync/state';
 import { homeTaskList, taskDateLabel } from '../../domain/taskRules';
+import { ACTIVITY_SORT_LABEL, sortActivity, type ActivitySort } from '../../domain/activityRules';
 
 export default function HomeScreen({ ready }: { ready: boolean }) {
   const items = useLiveQuery(() => db.shopping.toArray(), [], undefined);
+  // Лента грузится «с запасом»: по умолчанию показываем 25 последних, а при сортировке
+  // «по участнику»/«по типу» записи человека находятся даже среди давних (просьба 06.10.2026).
   const activity = useLiveQuery(
-    () => db.activity.orderBy('at').reverse().limit(15).toArray(),
+    () => db.activity.orderBy('at').reverse().limit(100).toArray(),
     [],
     undefined,
   );
+  const activityTotal = useLiveQuery(() => db.activity.count(), [], undefined);
   const members = useLiveQuery(() => db.members.toArray(), [], undefined);
   const tasks = useLiveQuery(() => db.tasks.toArray(), [], undefined);
   const nearbyTasks = useMemo(() => homeTaskList(tasks ?? []), [tasks]);
@@ -30,6 +34,25 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
     undefined,
   );
   const sync = useSyncState();
+  const [activitySort, setActivitySort] = useState<ActivitySort>('new');
+  const [activityActor, setActivityActor] = useState<string>('all');
+
+  // Участники для выпадающего фильтра берём из самой ленты: так в списке останутся даже
+  // те, кого потом удалили из семьи (их записи всё равно в ленте).
+  const activityActors = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const entry of activity ?? []) {
+      if (!seen.has(entry.actorId)) seen.set(entry.actorId, entry.actorName || 'Участник');
+    }
+    return [...seen.entries()].map(([id, name]) => ({ id, name }));
+  }, [activity]);
+
+  const shownActivity = useMemo(() => {
+    const list = (activity ?? []).filter(
+      (a) => activityActor === 'all' || a.actorId === activityActor,
+    );
+    return sortActivity(list, activitySort).slice(0, 25);
+  }, [activity, activitySort, activityActor]);
 
   const stats = useMemo(() => {
     if (!items) return null;
@@ -77,10 +100,12 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         style={{ textDecoration: 'none', color: 'inherit' }}
       >
         <div className="card-title">Покупки</div>
+        {/* Счётчики отвечают на один вопрос: «сколько ещё купить» (07.10.2026).
+            «Куплено» с Главной убрано — завершённое видно в самом списке покупок. */}
         <div className="row row--between" style={{ marginTop: 'var(--sp-3)' }}>
-          <Stat value={`${stats.now} / ${stats.soon}`} label="сейчас / скоро" />
-          <Stat value={stats.someday} label={HORIZON_LABEL.someday.toLowerCase()} />
-          <Stat value={stats.done} label="куплено" />
+          <Stat value={stats.total} label="Нужно купить" />
+          <Stat value={stats.soon} label={HORIZON_LABEL.soon} />
+          <Stat value={stats.someday} label={HORIZON_LABEL.someday} />
         </div>
       </Link>
 
@@ -122,7 +147,7 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
             {deadlines.slice(0, 3).map((d) => {
               const left = daysUntil(d.dueDate);
               const toneKind = deadlineTone(d);
-              const tone = toneKind === 'ok' ? 'var(--text-2)' : TONE_COLOR[toneKind];
+              const tone = TONE_TEXT_COLOR[toneKind];
               return (
                 <div key={d.id} className="row" style={{ gap: 'var(--sp-3)' }}>
                   <div className="grow">
@@ -185,41 +210,91 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
       <section className="stack">
         <details className="acc">
           <summary className="acc-summary">
-            <span className="grow">
-              Семейная лента{activity && activity.length > 0 ? ` · ${activity.length}` : ''}
-            </span>
+            <span className="grow">Семейная лента{activityTotal ? ` · ${activityTotal}` : ''}</span>
             <span className="acc-hint">Кто что добавил, купил или изменил</span>
             <Icon name="chevron" size={18} className="chev" />
           </summary>
           <div className="acc-body stack">
             {activity && activity.length > 0 ? (
-              <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
-                {activity.map((a) => (
-                  <div key={a.id} className="row" style={{ gap: 'var(--sp-3)' }}>
-                    <span className="badge badge--accent">{actionLabel(a.action, a.kind)}</span>
-                    <div className="grow">
-                      {a.place && (
-                        <div className="tiny" style={{ color: 'var(--accent)', marginBottom: 2 }}>
-                          {a.place}
+              <>
+                <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                  <label className="field grow" style={{ minWidth: 150 }}>
+                    <span className="field-label">Сортировать по</span>
+                    <select
+                      className="select"
+                      aria-label="Сортировать ленту"
+                      value={activitySort}
+                      onChange={(event) => setActivitySort(event.target.value as ActivitySort)}
+                    >
+                      {(Object.keys(ACTIVITY_SORT_LABEL) as ActivitySort[]).map((value) => (
+                        <option key={value} value={value}>
+                          {ACTIVITY_SORT_LABEL[value]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {activityActors.length > 1 && (
+                    <label className="field grow" style={{ minWidth: 150 }}>
+                      <span className="field-label">Кто</span>
+                      <select
+                        className="select"
+                        aria-label="Кто в ленте"
+                        value={activityActor}
+                        onChange={(event) => setActivityActor(event.target.value)}
+                      >
+                        <option value="all">Все участники</option>
+                        {activityActors.map((actor) => (
+                          <option key={actor.id} value={actor.id}>
+                            {actor.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+                <div
+                  className="card stack"
+                  style={{ gap: 'var(--sp-3)' }}
+                  data-testid="activity-list"
+                >
+                  {shownActivity.map((a) => (
+                    <div
+                      key={a.id}
+                      className="row"
+                      style={{ gap: 'var(--sp-3)' }}
+                      data-testid="activity-item"
+                    >
+                      <span className="badge badge--accent">{actionLabel(a.action, a.kind)}</span>
+                      <div className="grow">
+                        {a.place && (
+                          <div className="tiny" style={{ color: 'var(--accent)', marginBottom: 2 }}>
+                            {a.place}
+                          </div>
+                        )}
+                        <div className="small" style={{ overflowWrap: 'anywhere' }}>
+                          {a.title}
                         </div>
-                      )}
-                      <div className="small" style={{ overflowWrap: 'anywhere' }}>
-                        {a.title}
-                      </div>
-                      <div className="row tiny muted" style={{ gap: 6 }}>
-                        <span
-                          className="dot"
-                          style={{ color: memberColor(members, a.actorId), flex: '0 0 auto' }}
-                        />
-                        <span className="truncate">
-                          {members?.find((m) => m.id === a.actorId)?.name ?? a.actorName} ·{' '}
-                          {formatTime(a.at)}
-                        </span>
+                        <div className="row tiny muted" style={{ gap: 6 }}>
+                          <span
+                            className="dot"
+                            style={{ color: memberColor(members, a.actorId), flex: '0 0 auto' }}
+                          />
+                          <span className="truncate">
+                            {members?.find((m) => m.id === a.actorId)?.name ?? a.actorName} ·{' '}
+                            {formatTime(a.at)}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                  {shownActivity.length < (activity ?? []).length && (
+                    <div className="tiny muted">
+                      Показаны 25 из {activity.length} последних записей — выберите участника, чтобы
+                      найти его изменения.
+                    </div>
+                  )}
+                </div>
+              </>
             ) : (
               <div className="small muted">Пока пусто. Действия семьи появятся здесь.</div>
             )}

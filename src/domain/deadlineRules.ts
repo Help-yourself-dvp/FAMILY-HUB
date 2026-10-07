@@ -23,6 +23,16 @@ export interface DeadlineThresholds {
   warnDays: number;
 }
 
+export const KIND_LABEL: Record<DeadlineKind, string> = {
+  document: 'Документ',
+  vehicle: 'Машина',
+  home: 'Дом и ЖКХ',
+  insurance: 'Страховка',
+  service: 'Подписка/сервис',
+  birthday: 'День рождения',
+  custom: 'Другое',
+};
+
 export const KIND_THRESHOLDS: Record<DeadlineKind, DeadlineThresholds> = {
   document: { alertDays: 90, warnDays: 365 },
   vehicle: { alertDays: 14, warnDays: 30 },
@@ -61,3 +71,58 @@ export const TONE_COLOR: Record<DeadlineTone, string> = {
   warn: 'var(--warn)',
   ok: 'var(--ok)',
 };
+
+/**
+ * Цвет тона для ТЕКСТА (значок «через N дней», подписи). Отдельный от рамок: рамке
+ * достаточно насыщенного цвета, а тексту нужен контраст ≥ 4.5 к белому (07.10.2026).
+ */
+export const TONE_TEXT_COLOR: Record<DeadlineTone, string> = {
+  overdue: 'var(--err-text)',
+  alert: 'var(--err-text)',
+  warn: 'var(--warn-text)',
+  ok: 'var(--text-2)',
+};
+
+/** Сортировка списка сроков (просьба владельца 06.10.2026: не только по дате). */
+export type DeadlineSort = 'date' | 'kind' | 'owner' | 'title';
+
+export const DEADLINE_SORT_LABEL: Record<DeadlineSort, string> = {
+  date: 'По дате',
+  kind: 'По типу',
+  owner: 'По ответственному',
+  title: 'По названию',
+};
+
+/** Порядок по дате — прежний и единственный «естественный» для сроков. */
+function byDueDate(a: Deadline, b: Deadline): number {
+  return a.dueDate.localeCompare(b.dueDate) || a.id.localeCompare(b.id);
+}
+
+/**
+ * Сортировка сроков для выбранного порядка. Имя ответственного передаёт экран
+ * (`ownerName`): домен не знает про базу участников. Внутри группы — по дате, чтобы
+ * срочное всегда было выше, а порядок совпадал на всех телефонах.
+ */
+export function sortDeadlines(
+  list: Deadline[],
+  sort: DeadlineSort,
+  ownerName: (id: string | null | undefined) => string,
+): Deadline[] {
+  const copy = [...list];
+  switch (sort) {
+    case 'kind':
+      return copy.sort(
+        (a, b) =>
+          KIND_LABEL[a.deadlineKind].localeCompare(KIND_LABEL[b.deadlineKind], 'ru') ||
+          byDueDate(a, b),
+      );
+    case 'owner':
+      return copy.sort(
+        (a, b) => ownerName(a.ownerId).localeCompare(ownerName(b.ownerId), 'ru') || byDueDate(a, b),
+      );
+    case 'title':
+      return copy.sort((a, b) => a.title.localeCompare(b.title, 'ru') || byDueDate(a, b));
+    default:
+      return copy.sort(byDueDate);
+  }
+}

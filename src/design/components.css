@@ -598,17 +598,17 @@
 .banner--warn {
   background: var(--warn-soft);
   border-color: transparent;
-  color: var(--warn);
+  color: var(--warn-text);
 }
 .banner--err {
   background: var(--err-soft);
   border-color: transparent;
-  color: var(--err);
+  color: var(--err-text);
 }
 .banner--ok {
   background: var(--ok-soft);
   border-color: transparent;
-  color: var(--ok);
+  color: var(--ok-text);
 }
 
 .section-title {
@@ -706,4 +706,47 @@ code,
 .chip--accent {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* ---------- Меню «···» у заголовка секции (07.10.2026) ---------- */
+/* Нужно там, где действие редкое, но опасное («Очистить купленное»): одно касание
+   случайно больше не срабатывает, а сама кнопка не мозолит глаза в каждой строке. */
+.menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+.menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.menu > summary::-webkit-details-marker {
+  display: none;
+}
+.menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  min-width: 230px;
+  padding: var(--sp-2);
+  border-radius: var(--r-md);
+  border: 1px solid var(--stroke);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ---------- Полоса «Отменить» после удаления (07.10.2026) ---------- */
+/* Липнет над нижней панелью и кнопкой «+», поэтому «Вернуть» видно сразу после
+   удаления, где бы ни была строка в списке. */
+.undo-bar {
+  position: sticky;
+  bottom: calc(var(--nav-h) + var(--sab) + 82px);
+  z-index: 19;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  border: 1px solid var(--stroke);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-lg);
 }
