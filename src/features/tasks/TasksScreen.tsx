@@ -8,14 +8,16 @@ import { useSyncState } from '../../app/hooks';
 import { Banner, EmptyState, Icon, Skeleton } from '../../design/ui';
 import { daysUntil, formatRu, isDateOnly } from '../../domain/dateOnly';
 import {
-  compareOpenTasks,
   matchesTaskFilter,
+  sortOpenTasks,
   taskDateLabel,
+  TASK_SORT_LABEL,
   type TaskFilter,
+  type TaskSort,
 } from '../../domain/taskRules';
 import type { Member, Task } from '../../domain/types';
 import TaskSheet from './TaskSheet';
-import { TONE_COLOR } from '../../domain/deadlineRules';
+import { TONE_TEXT_COLOR } from '../../domain/deadlineRules';
 
 export default function TasksScreen({
   ready,
@@ -35,6 +37,7 @@ export default function TasksScreen({
   }
   const [editing, setEditing] = useState<Task | null>(null);
   const [filter, setFilter] = useState<TaskFilter>('all');
+  const [sort, setSort] = useState<TaskSort>('due');
   const [error, setError] = useState<string | null>(null);
   const liveMembers = useMemo(
     () =>
@@ -53,7 +56,15 @@ export default function TasksScreen({
     );
   const selfId = session().deviceId;
   const shown = live.filter((task) => matchesTaskFilter(task, filter, selfId));
-  const open = shown.filter((task) => task.status !== 'done').sort(compareOpenTasks);
+  const assigneeName = (id: string | null) => {
+    if (!id) return 'Без исполнителя';
+    return liveMembers.find((member) => member.id === id)?.name || 'Участник недоступен';
+  };
+  const open = sortOpenTasks(
+    shown.filter((task) => task.status !== 'done'),
+    sort,
+    assigneeName,
+  );
   const done = shown
     .filter((task) => task.status === 'done')
     .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? '') || a.id.localeCompare(b.id));
@@ -95,7 +106,7 @@ export default function TasksScreen({
       {!sync.configured && (
         <Banner tone="warn">
           <div className="grow">
-            <div className="strong">Локальный режим</div>
+            <div className="strong">Данные только на этом телефоне</div>
             <div className="small">
               Дела сохраняются на устройстве. Подключите семейное хранилище в настройках, чтобы
               список был общим.
@@ -108,7 +119,10 @@ export default function TasksScreen({
           <div className="grow small">{error}</div>
         </Banner>
       )}
-      <div className="chips" role="group" aria-label="Фильтр дел">
+      {/* Фильтры — одной строкой во всю ширину; сортировка — у заголовка списка
+          (0.6.27): раньше выпадающий список стоял в том же ряду и налезал на чип
+          «Мои дела» (замечание владельца 07.10.2026). */}
+      <div className="chips chips--line" role="group" aria-label="Фильтр дел">
         {(
           [
             ['all', 'Все дела'],
@@ -127,22 +141,39 @@ export default function TasksScreen({
           </button>
         ))}
       </div>
-      {open.length ? (
-        <section className="stack">
-          <h2 className="section-title">К выполнению · {open.length}</h2>
-          {open.map(row)}
-        </section>
-      ) : (
-        <EmptyState
-          emoji="✓"
-          title={live.length ? 'Здесь нет открытых дел' : 'Добавьте первое дело'}
-          hint={
-            live.length
-              ? 'Проверьте другой фильтр или выполненные дела ниже.'
-              : 'Кто что сделает для семьи: добавьте название, при желании исполнителя и срок.'
-          }
-        />
-      )}
+      <section className="stack">
+        <div className="row row--between" style={{ gap: 'var(--sp-2)' }}>
+          <h2 className="section-title grow" style={{ paddingLeft: 2 }}>
+            {open.length ? `К выполнению · ${open.length}` : 'К выполнению'}
+          </h2>
+          <select
+            className="select select--compact"
+            aria-label="Сортировать дела"
+            title="Сортировка списка"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as TaskSort)}
+          >
+            {(Object.keys(TASK_SORT_LABEL) as TaskSort[]).map((value) => (
+              <option key={value} value={value}>
+                {TASK_SORT_LABEL[value]}
+              </option>
+            ))}
+          </select>
+        </div>
+        {open.length ? (
+          open.map(row)
+        ) : (
+          <EmptyState
+            emoji="✓"
+            title={live.length ? 'Здесь нет открытых дел' : 'Добавьте первое дело'}
+            hint={
+              live.length
+                ? 'Проверьте другой фильтр или выполненные дела ниже.'
+                : 'Кто что сделает для семьи: добавьте название, при желании исполнителя и срок.'
+            }
+          />
+        )}
+      </section>
       {done.length > 0 && (
         <details className="acc">
           <summary className="acc-summary">
@@ -163,6 +194,11 @@ export default function TasksScreen({
       <p className="tiny muted" style={{ margin: 0 }}>
         База для повседневных дел. Повторения и автоматические уведомления добавим отдельно после
         проверки полезности.
+      </p>
+      <p className="tiny muted" style={{ margin: 0 }}>
+        Дело с датой уходит в семейную ленту и попадает в календари семьи (телефоны Android — через
+        «мост»). Поэтому добавлять его в календарь вручную отдельно не нужно: получится две записи —
+        своя и общая.
       </p>
       {composeOpen && <TaskSheet members={liveMembers} onClose={() => setComposeOpen(false)} />}
       {editing && (
@@ -193,7 +229,6 @@ function TaskRow({
 }) {
   const done = task.status === 'done';
   const assignee = task.assigneeId ? members.find((member) => member.id === task.assigneeId) : null;
-  const author = members.find((member) => member.id === task.updatedBy);
   const overdue = !done && isDateOnly(task.dueDate) && daysUntil(task.dueDate) < 0;
   return (
     <div className={`item${done ? ' item--done' : ''}`}>
@@ -229,9 +264,8 @@ function TaskRow({
           ·{' '}
           {done && isDateOnly(task.dueDate) ? formatRu(task.dueDate) : taskDateLabel(task.dueDate)}
         </div>
-        {author && <div className="tiny muted">Последнее изменение: {author.name}</div>}
         {overdue && (
-          <span className="badge" style={{ color: TONE_COLOR.alert }}>
+          <span className="badge" style={{ color: TONE_TEXT_COLOR.alert }}>
             Просрочено
           </span>
         )}
