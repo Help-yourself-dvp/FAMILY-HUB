@@ -160,10 +160,10 @@ describe('Тексты: Главная и строка дела', () => {
     await shoppingRepo.toggleDone(bought.id, true);
     render(<App ready />);
 
-    const card = (await screen.findByText('Нужно купить')).closest('.card') as HTMLElement;
+    // С 0.6.23 карточка покупок сжата до двух строк, но числа те же.
+    const card = (await screen.findByText('Нужно купить: 1')).closest('.card') as HTMLElement;
     expect(card).toBeTruthy();
-    expect(within(card).getByText('Скоро')).toBeTruthy();
-    expect(within(card).getByText('Когда-нибудь')).toBeTruthy();
+    expect(within(card).getByText('Скоро: 0 · Когда-нибудь: 0')).toBeTruthy();
     // «куплено» и «сейчас / скоро» — прежние счётчики. В самой ленте слово «куплено»
     // остаётся (это название действия), поэтому проверяем именно карточку покупок.
     expect(within(card).queryByText('куплено')).toBeNull();

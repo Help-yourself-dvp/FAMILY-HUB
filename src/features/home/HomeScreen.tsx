@@ -7,9 +7,10 @@ import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
 import { daysUntil, formatRu, humanizeDelta } from '../../domain/dateOnly';
+import { attentionRows, syncNote, syncProblem } from '../../domain/homeStatus';
 import { deadlineTone, TONE_TEXT_COLOR } from '../../domain/deadlineRules';
 import { HORIZON_LABEL, type Horizon } from '../../domain/types';
-import { Banner, Icon, Skeleton, Stat } from '../../design/ui';
+import { Banner, Icon, Skeleton } from '../../design/ui';
 import { useSyncState } from '../../app/hooks';
 import { PHASE_LABEL } from '../../data/sync/state';
 import { homeTaskList, taskDateLabel } from '../../domain/taskRules';
@@ -69,6 +70,23 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
     };
   }, [items]);
 
+  /**
+   * «Требует внимания» и баннер синхронизации — правила в `domain/homeStatus.ts`
+   * (07.10.2026): блок появляется, только если есть на что смотреть, а баннер сверху —
+   * только при проблеме. Обычное состояние живёт тонкой строкой внизу экрана.
+   */
+  const attention = useMemo(
+    () =>
+      attentionRows({
+        deadlines: deadlines ?? [],
+        tasks: tasks ?? [],
+        configured: sync.configured,
+      }),
+    [deadlines, tasks, sync.configured],
+  );
+  const problem = syncProblem(sync);
+  const note = syncNote(sync);
+
   if (!ready || !stats) {
     return (
       <div className="screen">
@@ -79,6 +97,22 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
 
   return (
     <div className="screen">
+      {problem && note && (
+        <Banner
+          tone={note.tone}
+          action={
+            <Link className="btn btn--sm" to="/settings">
+              Настроить
+            </Link>
+          }
+        >
+          <div className="grow">
+            <div className="strong small">{note.title}</div>
+            <div className="small">{note.detail}</div>
+          </div>
+        </Banner>
+      )}
+
       {stats.demo && (
         <Banner tone="warn">
           <div className="grow">
@@ -94,46 +128,27 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         </Banner>
       )}
 
-      <Link
-        to="/shopping"
-        className="card card--glass"
-        style={{ textDecoration: 'none', color: 'inherit' }}
-      >
-        <div className="card-title">Покупки</div>
-        {/* Счётчики отвечают на один вопрос: «сколько ещё купить» (07.10.2026).
-            «Куплено» с Главной убрано — завершённое видно в самом списке покупок. */}
-        <div className="row row--between" style={{ marginTop: 'var(--sp-3)' }}>
-          <Stat value={stats.total} label="Нужно купить" />
-          <Stat value={stats.soon} label={HORIZON_LABEL.soon} />
-          <Stat value={stats.someday} label={HORIZON_LABEL.someday} />
-        </div>
-      </Link>
-
-      <div className="card">
-        <div className="card-title">Синхронизация</div>
-        <div className="row row--between" style={{ marginTop: 'var(--sp-3)' }}>
-          <Stat
-            value={PHASE_LABEL[sync.phase]}
-            label={sync.configured ? 'подключено' : 'локальный режим'}
-          />
-          <Stat value={sync.pendingCount} label="не отправлено" />
-        </div>
-        {!sync.configured && (
-          <div className="small muted" style={{ marginTop: 'var(--sp-3)' }}>
-            Это приложение для совместного использования. Без подключения данные видны только на
-            этом устройстве. <Link to="/settings">Подключить семейный репозиторий →</Link>
+      {attention.length > 0 && (
+        <section className="stack" aria-label="Требует внимания">
+          <h2 className="section-title">Требует внимания</h2>
+          <div className="card stack" style={{ gap: 'var(--sp-3)' }} data-testid="attention">
+            {attention.map((row) => (
+              <Link key={row.id} to={row.to} className="row" style={{ gap: 'var(--sp-2)' }}>
+                <span style={{ color: 'var(--warn-text)', flex: '0 0 auto' }}>
+                  <Icon name="alert" size={18} />
+                </span>
+                <div className="grow">
+                  <div className="small" style={{ overflowWrap: 'anywhere' }}>
+                    {row.text}
+                  </div>
+                  <div className="tiny muted">{row.hint}</div>
+                </div>
+                <Icon name="chevron" size={16} className="chev" />
+              </Link>
+            ))}
           </div>
-        )}
-        {sync.lastError && (
-          <div className="banner banner--err" style={{ marginTop: 'var(--sp-3)' }}>
-            <Icon name="alert" size={16} />
-            <div className="grow">
-              <div className="strong small">Ошибка: {sync.lastError.code}</div>
-              <div className="tiny mono">{sync.lastError.message}</div>
-            </div>
-          </div>
-        )}
-      </div>
+        </section>
+      )}
 
       <section className="stack">
         <div className="row row--between">
@@ -206,6 +221,16 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
           <div className="small muted">Открытых дел пока нет.</div>
         )}
       </section>
+
+      <Link to="/shopping" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
+        <div className="row row--between" style={{ gap: 'var(--sp-2)' }}>
+          <div className="card-title">Покупки</div>
+          <div className="small">Нужно купить: {stats.total}</div>
+        </div>
+        <div className="tiny muted" style={{ marginTop: 4 }}>
+          {HORIZON_LABEL.soon}: {stats.soon} · {HORIZON_LABEL.someday}: {stats.someday}
+        </div>
+      </Link>
 
       <section className="stack">
         <details className="acc">
@@ -302,14 +327,10 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         </details>
       </section>
 
-      <div className="card">
-        <div className="card-title">Дела и сроки</div>
-        <div className="small muted" style={{ marginTop: 'var(--sp-3)' }}>
-          «Сроки»: документы, ТО, дни рождения — с напоминаниями и добавлением события в календарь
-          телефона. <Link to="/deadlines">Открыть сроки</Link>. «Дела» — общий список с
-          исполнителем, необязательным сроком и отметкой выполнения; уведомление о деле получает его
-          исполнитель. <Link to="/tasks">Открыть дела</Link>.
-        </div>
+      <div className="tiny muted sync-line">
+        Синхронизация: {PHASE_LABEL[sync.phase]}
+        {sync.pendingCount > 0 ? ` · не отправлено: ${sync.pendingCount}` : ''} ·{' '}
+        <Link to="/settings">Настройки</Link>
       </div>
     </div>
   );
