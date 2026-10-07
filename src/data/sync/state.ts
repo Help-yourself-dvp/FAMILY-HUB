@@ -54,13 +54,33 @@ export function subscribeSync(fn: Listener): () => void {
   };
 }
 
+/**
+ * Простые формулировки состояния (просьба владельца 07.10.2026: без терминов).
+ * «Все изменения сохранены» — когда отправлять нечего; «Отправляем: N» — когда есть
+ * очередь; «Нет подключения» — вместо «Офлайн»; «Хранилище не подключено» — вместо
+ * «Локальный режим».
+ */
 export const PHASE_LABEL: Record<SyncPhase, string> = {
-  idle: 'Не синхронизировано',
+  idle: 'Ждём отправки',
+  offline: 'Нет подключения',
+  syncing: 'Отправляем…',
+  synced: 'Все изменения сохранены',
+  error: 'Не удалось отправить',
+  'not-configured': 'Хранилище не подключено',
+};
+
+/**
+ * Короткие подписи для верхней плашки (07.10.2026): длинная фраза
+ * «Все изменения сохранены» выдавливала название раздела из верхней строки.
+ * Подробное объяснение по-прежнему в нижней строке Главной и в Настройках.
+ */
+export const PHASE_LABEL_SHORT: Record<SyncPhase, string> = {
+  idle: 'Ждём отправки',
   offline: 'Нет сети',
-  syncing: 'Синхронизация…',
+  syncing: 'Отправляем…',
   synced: 'Сохранено',
-  error: 'Ошибка синхронизации',
-  'not-configured': 'Локальный режим',
+  error: 'Ошибка',
+  'not-configured': 'Не подключено',
 };
 
 export const PHASE_TONE: Record<SyncPhase, 'ok' | 'warn' | 'err' | 'muted'> = {
@@ -71,3 +91,24 @@ export const PHASE_TONE: Record<SyncPhase, 'ok' | 'warn' | 'err' | 'muted'> = {
   error: 'err',
   'not-configured': 'muted',
 };
+
+/**
+ * Подпись состояния для человека, с числом, если оно есть: «Отправляем: 3»,
+ * «Ждём отправки: 2». Без числа — просто «Отправляем…» / «Ждём отправки».
+ */
+/** Короткая подпись плашки: с числом, если оно есть («Отправляем: 3»). */
+export function pillLabel(phase: SyncPhase, pendingCount = 0): string {
+  const base = PHASE_LABEL_SHORT[phase];
+  if (pendingCount <= 0) return base;
+  if (phase === 'syncing') return `Отправляем: ${pendingCount}`;
+  if (phase === 'idle') return `Ждём: ${pendingCount}`;
+  return base;
+}
+
+export function phaseLabel(phase: SyncPhase, pendingCount = 0): string {
+  const base = PHASE_LABEL[phase];
+  if (pendingCount <= 0) return base;
+  if (phase === 'syncing') return `Отправляем: ${pendingCount}`;
+  if (phase === 'idle') return `Ждём отправки: ${pendingCount}`;
+  return base;
+}

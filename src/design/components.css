@@ -67,7 +67,9 @@
 .btn {
   appearance: none;
   border: 1px solid transparent;
-  border-radius: var(--r-pill);
+  /* Кнопка — мягкий прямоугольник, а не пилюля (0.6.24): пилюль на экране было слишком
+     много, а так кнопки отличаются от значков-статусов. Закругление как у полей ввода. */
+  border-radius: var(--r-md);
   min-height: var(--tap);
   padding: 0 var(--sp-5);
   display: inline-flex;
@@ -386,6 +388,19 @@
    * учтены контейнером.
    */
   padding: 6px var(--sp-4) 0;
+  min-width: 0;
+}
+/* Заголовок раздела — главный в строке; плашка ужимается и не выдавливает его. */
+.topbar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.topbar .badge {
+  flex: 0 0 auto;
+  max-width: 52%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---------- Переключатель ---------- */
@@ -598,17 +613,17 @@
 .banner--warn {
   background: var(--warn-soft);
   border-color: transparent;
-  color: var(--warn);
+  color: var(--warn-text);
 }
 .banner--err {
   background: var(--err-soft);
   border-color: transparent;
-  color: var(--err);
+  color: var(--err-text);
 }
 .banner--ok {
   background: var(--ok-soft);
   border-color: transparent;
-  color: var(--ok);
+  color: var(--ok-text);
 }
 
 .section-title {
@@ -706,4 +721,88 @@ code,
 .chip--accent {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* ---------- Меню «···» у заголовка секции (07.10.2026) ---------- */
+/* Нужно там, где действие редкое, но опасное («Очистить купленное»): одно касание
+   случайно больше не срабатывает, а сама кнопка не мозолит глаза в каждой строке. */
+.menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+.menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.menu > summary::-webkit-details-marker {
+  display: none;
+}
+.menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  min-width: 230px;
+  padding: var(--sp-2);
+  border-radius: var(--r-md);
+  border: 1px solid var(--stroke);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ---------- Полоса «Отменить» после удаления (07.10.2026) ---------- */
+/* Липнет над нижней панелью и кнопкой «+», поэтому «Вернуть» видно сразу после
+   удаления, где бы ни была строка в списке. */
+.undo-bar {
+  position: sticky;
+  bottom: calc(var(--nav-h) + var(--sab) + 82px);
+  z-index: 19;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  border: 1px solid var(--stroke);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ---------- Тонкая строка статуса синхронизации внизу Главной (07.10.2026) ---------- */
+/* Обычное состояние не занимает пол-экрана: подробности — в «Ещё» → «Настройки»,
+   а баннер сверху появляется только при проблеме. */
+.sync-line {
+  margin-top: auto;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--stroke);
+}
+
+/* ---------- Компактная строка фильтров (0.6.25) ---------- */
+/* Владелец 07.10.2026: чипы и выпадающий список «Сортировать по» съедали пол-экрана
+   списка дел. Теперь одна строка высотой с чип: чипы прокручиваются по горизонтали,
+   список сортировки — компактный селект справа. */
+.filters-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.filters-row .chips {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.filters-row .chips::-webkit-scrollbar {
+  display: none;
+}
+.filters-row .chip {
+  flex: 0 0 auto;
+}
+.select--compact {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 36px;
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
 }

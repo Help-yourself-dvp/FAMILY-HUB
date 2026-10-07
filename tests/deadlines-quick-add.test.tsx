@@ -133,15 +133,27 @@ describe('Сроки и календарь: галочка при сохране
     return form;
   }
 
+  /**
+   * Галочка «Добавить в календарь телефона» ПО УМОЛЧАНИЮ СНЯТА (решение владельца
+   * 06.10.2026): событие из окна календаря не синхронизируется между устройствами.
+   * Тесты включают её явно — и заодно стерегут, что по умолчанию она пустая.
+   */
+  function turnOnCalendar(form: HTMLElement) {
+    const box = within(form).getByRole('checkbox', { name: 'Добавить в календарь телефона' });
+    expect(box.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(box);
+    expect(box.getAttribute('aria-checked')).toBe('true');
+  }
+
   it('с галочкой открывается окно создания события с названием и датой', async () => {
     render(<App ready />);
     await openDeadlineTab();
     const form = await fillNewDeadline('Учебный срок календаря', '2027-05-01');
-    expect(
-      within(form)
-        .getByRole('checkbox', { name: 'Добавить в календарь телефона' })
-        .getAttribute('aria-checked'),
-    ).toBe('true');
+    // По умолчанию галочка снята, и рядом честно написано, чем она обернётся.
+    const box = within(form).getByRole('checkbox', { name: 'Добавить в календарь телефона' });
+    expect(box.getAttribute('aria-checked')).toBe('false');
+    expect(within(form).getByText(/не будет синхронизировано между устройствами/u)).toBeTruthy();
+    turnOnCalendar(form);
 
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
@@ -152,6 +164,9 @@ describe('Сроки и календарь: галочка при сохране
     expect(openWindow).not.toHaveBeenCalled();
     const prompt = await screen.findByRole('dialog', { name: 'Добавить событие в календарь?' });
     expect(within(prompt).getByText(/Добавить событие/u)).toBeTruthy();
+    // Предупреждение — и в шапке окна, и внизу (просьба владельца 06.10.2026).
+    expect(within(prompt).getByText(/Не будет синхронизировано между устройствами/u)).toBeTruthy();
+    expect(within(prompt).getByText(/Событие останется только на этом телефоне/u)).toBeTruthy();
     expect(within(prompt).getByText('Family Hub · Учебный срок календаря')).toBeTruthy();
     expect(within(prompt).getByText(/1 мая 2027|01\.05\.2027/u)).toBeTruthy();
     expect(within(prompt).getByRole('button', { name: 'Не нужно' })).toBeTruthy();
@@ -166,11 +181,15 @@ describe('Сроки и календарь: галочка при сохране
     expect(openWindow).not.toHaveBeenCalled();
   });
 
-  it('без галочки ничего не открывается и срока-события в календаре не будет', async () => {
+  it('по умолчанию галочка снята: ничего не спрашивается и не скачивается', async () => {
     render(<App ready />);
     await openDeadlineTab();
     const form = await fillNewDeadline('Учебный без календаря', '2027-06-01');
-    fireEvent.click(within(form).getByRole('checkbox', { name: 'Добавить в календарь телефона' }));
+    expect(
+      within(form)
+        .getByRole('checkbox', { name: 'Добавить в календарь телефона' })
+        .getAttribute('aria-checked'),
+    ).toBe('false');
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
@@ -185,7 +204,7 @@ describe('Сроки и календарь: галочка при сохране
     render(<App ready />);
     await openDeadlineTab();
     const first = await fillNewDeadline('Первый', '2027-07-01');
-    fireEvent.click(within(first).getByRole('checkbox', { name: 'Добавить в календарь телефона' }));
+    turnOnCalendar(first);
     const footer = first.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
     await waitFor(async () => expect((await db.deadlines.toArray()).length).toBe(1), {
@@ -200,7 +219,7 @@ describe('Сроки и календарь: галочка при сохране
         within(second)
           .getByRole('checkbox', { name: 'Добавить в календарь телефона' })
           .getAttribute('aria-checked'),
-      ).toBe('false'),
+      ).toBe('true'),
     );
   });
 
@@ -222,6 +241,7 @@ describe('Сроки и календарь: галочка при сохране
     render(<App ready />);
     await openDeadlineTab();
     const form = await fillNewDeadline('Срок для iPhone', '2027-08-01');
+    turnOnCalendar(form);
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
@@ -259,6 +279,7 @@ describe('Сроки и календарь: галочка при сохране
     render(<App ready />);
     await openDeadlineTab();
     const form = await fillNewDeadline('Срок для iPhone', '2027-08-01');
+    turnOnCalendar(form);
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
     const note = await screen.findByTestId('calendar-ios-note');
@@ -277,7 +298,6 @@ describe('Сроки и календарь: галочка при сохране
     render(<App ready />);
     await openDeadlineTab();
     const form = await fillNewDeadline('iPhone без галочки', '2027-08-03');
-    fireEvent.click(within(form).getByRole('checkbox', { name: 'Добавить в календарь телефона' }));
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
@@ -296,6 +316,7 @@ describe('Сроки и календарь: галочка при сохране
     render(<App ready />);
     await openDeadlineTab();
     const form = await fillNewDeadline('Срок с компьютера', '2027-05-01');
+    turnOnCalendar(form);
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
@@ -314,6 +335,7 @@ describe('Сроки и календарь: галочка при сохране
     render(<App ready />);
     await openDeadlineTab();
     const form = await fillNewDeadline('Срок с выбором', '2027-08-01');
+    turnOnCalendar(form);
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
 
@@ -341,6 +363,7 @@ describe('Сроки и календарь: галочка при сохране
     render(<App ready />);
     await openDeadlineTab();
     const form = await fillNewDeadline('Срок без календаря', '2027-09-01');
+    turnOnCalendar(form);
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
     const prompt = await screen.findByTestId('calendar-prompt');
@@ -356,6 +379,7 @@ describe('Сроки и календарь: галочка при сохране
     render(<App ready />);
     await openDeadlineTab();
     const form = await fillNewDeadline('Сверка ссылки', '2027-05-01');
+    turnOnCalendar(form);
     const footer = form.querySelector<HTMLElement>('.sheet-footer')!;
     fireEvent.click(within(footer).getByRole('button', { name: 'Добавить' }));
     await waitFor(async () => expect((await db.deadlines.toArray()).length).toBe(1), {
@@ -378,3 +402,63 @@ describe('Сроки и календарь: галочка при сохране
     expect(text).toContain('DTSTART;TZID=Europe/Moscow:20270501T090000');
   });
 });
+
+describe('Ступени напоминаний и предел Google', () => {
+  it('«за 4 недели» уже выбрана при создании срока («в день» и «за 7» — как раньше)', async () => {
+    render(<App ready />);
+    const form = await quickDeadline();
+
+    const fourWeeks = within(form).getByRole('button', { name: 'за 4 недели' });
+    expect(fourWeeks.getAttribute('aria-pressed')).toBe('true');
+    expect(within(form).getByRole('button', { name: 'за 7 дней' }).getAttribute('aria-pressed')).toBe('true');
+    expect(within(form).getByRole('button', { name: 'в день срока' }).getAttribute('aria-pressed')).toBe('true');
+    // Длинные ступени по умолчанию выключены: звонка по ним Google всё равно не даст.
+    expect(within(form).getByRole('button', { name: 'за 30 дней' }).getAttribute('aria-pressed')).toBe('false');
+    expect(within(form).getByRole('button', { name: 'за 90 дней' }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('выбор ступени «за 90 дней» включает рядом рабочую «за 4 недели» и объясняет почему', async () => {
+    render(<App ready />);
+    const form = await quickDeadline();
+
+    fireEvent.click(within(form).getByRole('button', { name: 'за 4 недели' }));
+    expect(within(form).getByRole('button', { name: 'за 4 недели' }).getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(within(form).getByRole('button', { name: 'за 90 дней' }));
+    expect(within(form).getByRole('button', { name: 'за 90 дней' }).getAttribute('aria-pressed')).toBe('true');
+    // Без длинной ступени подсказки нет, с длинной — появилась.
+    expect(within(form).getByText(/не принимает напоминания длиннее 4 недель/u)).toBeTruthy();
+    expect(within(form).getByRole('button', { name: 'за 4 недели' }).getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+  it('у старого срока (30 и 90 дней без «за 4 недели») рабочая ступень включается сама', async () => {
+    // Срок заведён до 0.6.17: ступени 30/90 дней, рабочей «за 4 недели» нет. При открытии
+    // формы она уже выбрана — человеку достаточно нажать «Сохранить» (просьба 06.10.2026).
+    await db.deadlines.put({
+      id: 'old-30',
+      rev: 1,
+      kind: 'deadlines',
+      createdAt: '2026-09-01T09:00:00.000Z',
+      updatedAt: '2026-09-01T09:00:00.000Z',
+      updatedBy: 'fixture',
+      deletedAt: null,
+      title: 'Старый срок',
+      deadlineKind: 'custom',
+      dueDate: '2027-03-01',
+      remindersDays: [30, 7, 0],
+      recurrence: { type: 'none' },
+      history: [],
+      visibility: 'family',
+      note: null,
+    } as never);
+
+    render(<App ready />);
+    await openDeadlineTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'Изменить «Старый срок»' }));
+    const form = await screen.findByRole('dialog', { name: 'Изменить срок' });
+
+    expect(within(form).getByRole('button', { name: 'за 4 недели' }).getAttribute('aria-pressed')).toBe('true');
+    expect(within(form).getByRole('button', { name: 'за 30 дней' }).getAttribute('aria-pressed')).toBe('true');
+    expect(within(form).getByText(/рядом включена ступень «за 4 недели»/u)).toBeTruthy();
+  });
