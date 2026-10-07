@@ -33,6 +33,10 @@ export default function ShoppingScreen({
   const [showDone, setShowDone] = useState(false);
   const [editing, setEditing] = useState<ShoppingItem | null>(null);
   const [groupBy, setGroupBy] = useState<'horizon' | 'category'>('horizon');
+  // Последняя удалённая позиция: показываем строку «Вернуть» вместо пустоты, если удалили
+  // случайно (владелец: удаление не должно быть необратимым, 07.10.2026). Живёт до
+  // следующего удаления или до ухода с экрана — историю не храним.
+  const [lastRemoved, setLastRemoved] = useState<{ id: string; title: string } | null>(null);
 
   useEffect(() => {
     void kvGet<'horizon' | 'category'>('shopping.groupBy').then((v) =>
@@ -98,36 +102,41 @@ export default function ShoppingScreen({
         <div className="screen-subtitle" style={{ padding: 0 }}>
           {groups.activeCount > 0 ? `${groups.activeCount} в списке` : 'ничего не нужно'}
         </div>
-        <div className="chips" role="group" aria-label="Группировка списка">
-          <button
-            type="button"
-            className="chip"
-            aria-pressed={groupBy === 'horizon'}
-            onClick={() => {
-              setGroupBy('horizon');
-              void kvSet('shopping.groupBy', 'horizon');
-            }}
-          >
-            По сроку
-          </button>
-          <button
-            type="button"
-            className="chip"
-            aria-pressed={groupBy === 'category'}
-            onClick={() => {
-              setGroupBy('category');
-              void kvSet('shopping.groupBy', 'category');
-            }}
-          >
-            По категориям
-          </button>
+        <div className="row" style={{ gap: 'var(--sp-2)' }}>
+          <span className="small muted" id="shop-group-label">
+            Группировать:
+          </span>
+          <div className="chips" role="group" aria-labelledby="shop-group-label">
+            <button
+              type="button"
+              className="chip"
+              aria-pressed={groupBy === 'horizon'}
+              onClick={() => {
+                setGroupBy('horizon');
+                void kvSet('shopping.groupBy', 'horizon');
+              }}
+            >
+              По сроку
+            </button>
+            <button
+              type="button"
+              className="chip"
+              aria-pressed={groupBy === 'category'}
+              onClick={() => {
+                setGroupBy('category');
+                void kvSet('shopping.groupBy', 'category');
+              }}
+            >
+              По категориям
+            </button>
+          </div>
         </div>
       </div>
 
       {!sync.configured && (
         <Banner tone="warn">
           <div className="grow">
-            <div className="strong">Локальный режим</div>
+            <div className="strong">Данные только на этом телефоне</div>
             <div className="small">
               Данные только на этом устройстве. Чтобы делиться списком с семьёй, подключите
               репозиторий в настройках.
@@ -162,6 +171,7 @@ export default function ShoppingScreen({
                     item={item}
                     author={members?.find((m) => m.id === item.updatedBy)}
                     onEdit={setEditing}
+                    onRemoved={setLastRemoved}
                   />
                 ))}
               </div>
@@ -187,6 +197,7 @@ export default function ShoppingScreen({
                     item={item}
                     author={members?.find((m) => m.id === item.updatedBy)}
                     onEdit={setEditing}
+                    onRemoved={setLastRemoved}
                   />
                 ))}
               </div>
@@ -208,22 +219,38 @@ export default function ShoppingScreen({
                 }}
               />
               {showDone && (
-                <div className="row" style={{ gap: 6 }}>
-                  <button
-                    type="button"
-                    className="btn btn--sm btn--ghost"
-                    onClick={() => void shoppingRepo.repeatBasket()}
-                  >
-                    Повторить корзину
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--sm btn--ghost"
-                    onClick={() => void shoppingRepo.clearDone()}
-                  >
-                    Очистить
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className="btn btn--sm btn--ghost"
+                  onClick={() => void shoppingRepo.repeatBasket()}
+                >
+                  Повторить корзину
+                </button>
+              )}
+              {showDone && (
+                <details className="menu" data-testid="done-menu">
+                  <summary className="icon-btn" aria-label="Ещё действия с купленным">
+                    <Icon name="dots" size={20} />
+                  </summary>
+                  <div className="menu-panel">
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--block"
+                      onClick={() => {
+                        if (
+                          !window.confirm(
+                            `Убрать купленные позиции из списка — ${groups.doneCount} шт.?`,
+                          )
+                        )
+                          return;
+                        void shoppingRepo.clearDone();
+                        setLastRemoved(null);
+                      }}
+                    >
+                      Очистить купленное
+                    </button>
+                  </div>
+                </details>
               )}
             </div>
           </div>
@@ -233,6 +260,7 @@ export default function ShoppingScreen({
                 <DoneGroupRow
                   key={group.item.id}
                   group={group}
+                  onRemoved={setLastRemoved}
                   members={members ?? []}
                   onEdit={setEditing}
                 />
@@ -240,6 +268,30 @@ export default function ShoppingScreen({
             </div>
           )}
         </section>
+      )}
+
+      {lastRemoved && (
+        <div className="row row--between undo-bar" role="status">
+          <div className="small grow truncate">Удалено: «{lastRemoved.title}»</div>
+          <button
+            type="button"
+            className="btn btn--sm"
+            onClick={() => {
+              void shoppingRepo.restore(lastRemoved.id);
+              setLastRemoved(null);
+            }}
+          >
+            Вернуть
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Скрыть сообщение об удалении"
+            onClick={() => setLastRemoved(null)}
+          >
+            <Icon name="close" size={18} />
+          </button>
+        </div>
       )}
 
       <button
@@ -261,10 +313,13 @@ function ShoppingRow({
   item,
   author,
   onEdit,
+  onRemoved,
 }: {
   item: ShoppingItem;
   author?: { name: string; color: string } | null;
   onEdit: (item: ShoppingItem) => void;
+  /** Уведомить экран: строку удалили — показать «Отменить» (07.10.2026). */
+  onRemoved?: (item: ShoppingItem) => void;
 }) {
   const meta = [
     item.qty !== null ? `${formatQty(item.qty)}${item.unit ? ` ${item.unit}` : ''}` : null,
@@ -310,7 +365,10 @@ function ShoppingRow({
         type="button"
         className="icon-btn"
         aria-label={`Удалить ${item.title}`}
-        onClick={() => void shoppingRepo.remove(item.id)}
+        onClick={() => {
+          void shoppingRepo.remove(item.id);
+          onRemoved?.(item);
+        }}
       >
         <Icon name="trash" size={20} />
       </button>
@@ -327,10 +385,12 @@ function DoneGroupRow({
   group,
   members,
   onEdit,
+  onRemoved,
 }: {
   group: DoneGroup;
   members: Array<{ id: string; name: string; color: string }>;
   onEdit: (item: ShoppingItem) => void;
+  onRemoved?: (item: ShoppingItem) => void;
 }) {
   const [open, setOpen] = useState(false);
   const newest = group.item;
@@ -347,7 +407,7 @@ function DoneGroupRow({
     .join(' · ');
 
   if (group.count === 1) {
-    return <ShoppingRow item={newest} author={author} onEdit={onEdit} />;
+    return <ShoppingRow item={newest} author={author} onEdit={onEdit} onRemoved={onRemoved} />;
   }
 
   return (
@@ -412,6 +472,7 @@ function DoneGroupRow({
               item={item}
               author={members.find((m) => m.id === item.updatedBy)}
               onEdit={onEdit}
+              onRemoved={onRemoved}
             />
           </div>
         ))}

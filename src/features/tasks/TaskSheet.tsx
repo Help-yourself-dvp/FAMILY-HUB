@@ -22,6 +22,11 @@ export default function TaskSheet({
   const [error, setError] = useState<string | null>(null);
   const previousAssigneeUnavailable =
     assigneeId && !members.some((member) => member.id === assigneeId);
+  // Кто последним менял дело — раньше это висело в каждой строке списка («Последнее
+  // изменение: …»), что читалось как аудит. Теперь видно только при открытии дела (07.10.2026).
+  const lastEditor = editing
+    ? (members.find((member) => member.id === editing.updatedBy)?.name ?? editing.updatedBy)
+    : null;
 
   const submit = async () => {
     if (busy) return;
@@ -105,10 +110,14 @@ export default function TaskSheet({
           </button>
         )}
         <p className="tiny muted" style={{ margin: 0 }}>
-          Назначение другим участником — уведомление только исполнителю. В день срока — ещё одно,
-          даже если назначили себе. Без исполнителя уведомлений нет. При закрытой PWA серверный
-          канал зависит от обновлённого отправителя; точное время не гарантируется.
+          Уведомление о деле получает исполнитель; без исполнителя уведомлений нет. Подробности — за
+          значком «i» вверху раздела.
         </p>
+        {lastEditor && (
+          <p className="tiny muted" style={{ margin: 0 }}>
+            Последнее изменение: {lastEditor}.
+          </p>
+        )}
         <div className="sheet-footer">
           <button type="submit" className="btn btn--primary btn--block" disabled={busy}>
             {busy ? 'Сохраняем…' : editing ? 'Сохранить' : 'Добавить дело'}

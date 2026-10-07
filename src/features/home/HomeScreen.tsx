@@ -2,25 +2,30 @@
  * Главная — семейный dashboard (ТЗ §14: не перегружать).
  * На ЭТАПЕ 1 показывает реальные счётчики из локальной БД + «Семейную ленту».
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
 import { daysUntil, formatRu, humanizeDelta } from '../../domain/dateOnly';
-import { deadlineTone, TONE_COLOR } from '../../domain/deadlineRules';
+import { attentionRows, syncNote, syncProblem } from '../../domain/homeStatus';
+import { deadlineTone, homeDeadlines, TONE_TEXT_COLOR } from '../../domain/deadlineRules';
 import { HORIZON_LABEL, type Horizon } from '../../domain/types';
-import { Banner, Icon, Skeleton, Stat } from '../../design/ui';
+import { Banner, Icon, Skeleton } from '../../design/ui';
 import { useSyncState } from '../../app/hooks';
-import { PHASE_LABEL } from '../../data/sync/state';
+import { statusLine } from '../../data/sync/state';
 import { homeTaskList, taskDateLabel } from '../../domain/taskRules';
+import { ACTIVITY_SORT_LABEL, sortActivity, type ActivitySort } from '../../domain/activityRules';
 
 export default function HomeScreen({ ready }: { ready: boolean }) {
   const items = useLiveQuery(() => db.shopping.toArray(), [], undefined);
+  // Лента грузится «с запасом»: по умолчанию показываем 25 последних, а при сортировке
+  // «по участнику»/«по типу» записи человека находятся даже среди давних (просьба 06.10.2026).
   const activity = useLiveQuery(
-    () => db.activity.orderBy('at').reverse().limit(15).toArray(),
+    () => db.activity.orderBy('at').reverse().limit(100).toArray(),
     [],
     undefined,
   );
+  const activityTotal = useLiveQuery(() => db.activity.count(), [], undefined);
   const members = useLiveQuery(() => db.members.toArray(), [], undefined);
   const tasks = useLiveQuery(() => db.tasks.toArray(), [], undefined);
   const nearbyTasks = useMemo(() => homeTaskList(tasks ?? []), [tasks]);
@@ -30,6 +35,25 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
     undefined,
   );
   const sync = useSyncState();
+  const [activitySort, setActivitySort] = useState<ActivitySort>('new');
+  const [activityActor, setActivityActor] = useState<string>('all');
+
+  // Участники для выпадающего фильтра берём из самой ленты: так в списке останутся даже
+  // те, кого потом удалили из семьи (их записи всё равно в ленте).
+  const activityActors = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const entry of activity ?? []) {
+      if (!seen.has(entry.actorId)) seen.set(entry.actorId, entry.actorName || 'Участник');
+    }
+    return [...seen.entries()].map(([id, name]) => ({ id, name }));
+  }, [activity]);
+
+  const shownActivity = useMemo(() => {
+    const list = (activity ?? []).filter(
+      (a) => activityActor === 'all' || a.actorId === activityActor,
+    );
+    return sortActivity(list, activitySort).slice(0, 25);
+  }, [activity, activitySort, activityActor]);
 
   const stats = useMemo(() => {
     if (!items) return null;
@@ -46,6 +70,25 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
     };
   }, [items]);
 
+  /**
+   * «Требует внимания» и баннер синхронизации — правила в `domain/homeStatus.ts`
+   * (07.10.2026): блок появляется, только если есть на что смотреть, а баннер сверху —
+   * только при проблеме. Обычное состояние живёт тонкой строкой внизу экрана.
+   */
+  const attention = useMemo(
+    () =>
+      attentionRows({
+        deadlines: deadlines ?? [],
+        tasks: tasks ?? [],
+        configured: sync.configured,
+      }),
+    [deadlines, tasks, sync.configured],
+  );
+  const problem = syncProblem(sync);
+  const note = syncNote(sync);
+  // Сроки для карточки: три по умолчанию, но все близкие (≤ 7 дней) — до восьми.
+  const nearest = useMemo(() => homeDeadlines(deadlines ?? []), [deadlines]);
+
   if (!ready || !stats) {
     return (
       <div className="screen">
@@ -56,6 +99,22 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
 
   return (
     <div className="screen">
+      {problem && note && (
+        <Banner
+          tone={note.tone}
+          action={
+            <Link className="btn btn--sm" to="/settings">
+              Настроить
+            </Link>
+          }
+        >
+          <div className="grow">
+            <div className="strong small">{note.title}</div>
+            <div className="small">{note.detail}</div>
+          </div>
+        </Banner>
+      )}
+
       {stats.demo && (
         <Banner tone="warn">
           <div className="grow">
@@ -71,44 +130,27 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         </Banner>
       )}
 
-      <Link
-        to="/shopping"
-        className="card card--glass"
-        style={{ textDecoration: 'none', color: 'inherit' }}
-      >
-        <div className="card-title">Покупки</div>
-        <div className="row row--between" style={{ marginTop: 'var(--sp-3)' }}>
-          <Stat value={`${stats.now} / ${stats.soon}`} label="сейчас / скоро" />
-          <Stat value={stats.someday} label={HORIZON_LABEL.someday.toLowerCase()} />
-          <Stat value={stats.done} label="куплено" />
-        </div>
-      </Link>
-
-      <div className="card">
-        <div className="card-title">Синхронизация</div>
-        <div className="row row--between" style={{ marginTop: 'var(--sp-3)' }}>
-          <Stat
-            value={PHASE_LABEL[sync.phase]}
-            label={sync.configured ? 'подключено' : 'локальный режим'}
-          />
-          <Stat value={sync.pendingCount} label="не отправлено" />
-        </div>
-        {!sync.configured && (
-          <div className="small muted" style={{ marginTop: 'var(--sp-3)' }}>
-            Это приложение для совместного использования. Без подключения данные видны только на
-            этом устройстве. <Link to="/settings">Подключить семейный репозиторий →</Link>
+      {attention.length > 0 && (
+        <section className="stack" aria-label="Требует внимания">
+          <h2 className="section-title">Требует внимания</h2>
+          <div className="card stack" style={{ gap: 'var(--sp-3)' }} data-testid="attention">
+            {attention.map((row) => (
+              <Link key={row.id} to={row.to} className="row" style={{ gap: 'var(--sp-2)' }}>
+                <span style={{ color: 'var(--warn-text)', flex: '0 0 auto' }}>
+                  <Icon name="alert" size={18} />
+                </span>
+                <div className="grow">
+                  <div className="small" style={{ overflowWrap: 'anywhere' }}>
+                    {row.text}
+                  </div>
+                  <div className="tiny muted">{row.hint}</div>
+                </div>
+                <Icon name="chevron" size={16} className="chev" />
+              </Link>
+            ))}
           </div>
-        )}
-        {sync.lastError && (
-          <div className="banner banner--err" style={{ marginTop: 'var(--sp-3)' }}>
-            <Icon name="alert" size={16} />
-            <div className="grow">
-              <div className="strong small">Ошибка: {sync.lastError.code}</div>
-              <div className="tiny mono">{sync.lastError.message}</div>
-            </div>
-          </div>
-        )}
-      </div>
+        </section>
+      )}
 
       <section className="stack">
         <div className="row row--between">
@@ -119,10 +161,10 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         </div>
         {deadlines && deadlines.length > 0 ? (
           <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
-            {deadlines.slice(0, 3).map((d) => {
+            {nearest.shown.map((d) => {
               const left = daysUntil(d.dueDate);
               const toneKind = deadlineTone(d);
-              const tone = toneKind === 'ok' ? 'var(--text-2)' : TONE_COLOR[toneKind];
+              const tone = TONE_TEXT_COLOR[toneKind];
               return (
                 <div key={d.id} className="row" style={{ gap: 'var(--sp-3)' }}>
                   <div className="grow">
@@ -141,6 +183,13 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         ) : (
           <div className="small muted">
             Сроков пока нет. Добавьте первый в разделе «Сроки» — напоминания придут сами.
+          </div>
+        )}
+        {nearest.shown.length < nearest.total && (
+          // Кнопка «Все сроки» уже есть в заголовке раздела — второй ссылки не делаем.
+          <div className="tiny muted">
+            Показаны самые близкие: {nearest.shown.length} из {nearest.total} — остальные в разделе
+            «Сроки».
           </div>
         )}
       </section>
@@ -182,44 +231,104 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         )}
       </section>
 
+      <Link to="/shopping" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
+        <div className="row row--between" style={{ gap: 'var(--sp-2)' }}>
+          <div className="card-title">Покупки</div>
+          <div className="small">Нужно купить: {stats.total}</div>
+        </div>
+        <div className="tiny muted" style={{ marginTop: 4 }}>
+          {HORIZON_LABEL.soon}: {stats.soon} · {HORIZON_LABEL.someday}: {stats.someday}
+        </div>
+      </Link>
+
       <section className="stack">
         <details className="acc">
           <summary className="acc-summary">
-            <span className="grow">
-              Семейная лента{activity && activity.length > 0 ? ` · ${activity.length}` : ''}
-            </span>
+            <span className="grow">Семейная лента{activityTotal ? ` · ${activityTotal}` : ''}</span>
             <span className="acc-hint">Кто что добавил, купил или изменил</span>
             <Icon name="chevron" size={18} className="chev" />
           </summary>
           <div className="acc-body stack">
             {activity && activity.length > 0 ? (
-              <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
-                {activity.map((a) => (
-                  <div key={a.id} className="row" style={{ gap: 'var(--sp-3)' }}>
-                    <span className="badge badge--accent">{actionLabel(a.action, a.kind)}</span>
-                    <div className="grow">
-                      {a.place && (
-                        <div className="tiny" style={{ color: 'var(--accent)', marginBottom: 2 }}>
-                          {a.place}
+              <>
+                <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                  <label className="field grow" style={{ minWidth: 150 }}>
+                    <span className="field-label">Сортировать по</span>
+                    <select
+                      className="select"
+                      aria-label="Сортировать ленту"
+                      value={activitySort}
+                      onChange={(event) => setActivitySort(event.target.value as ActivitySort)}
+                    >
+                      {(Object.keys(ACTIVITY_SORT_LABEL) as ActivitySort[]).map((value) => (
+                        <option key={value} value={value}>
+                          {ACTIVITY_SORT_LABEL[value]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {activityActors.length > 1 && (
+                    <label className="field grow" style={{ minWidth: 150 }}>
+                      <span className="field-label">Кто</span>
+                      <select
+                        className="select"
+                        aria-label="Кто в ленте"
+                        value={activityActor}
+                        onChange={(event) => setActivityActor(event.target.value)}
+                      >
+                        <option value="all">Все участники</option>
+                        {activityActors.map((actor) => (
+                          <option key={actor.id} value={actor.id}>
+                            {actor.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+                <div
+                  className="card stack"
+                  style={{ gap: 'var(--sp-3)' }}
+                  data-testid="activity-list"
+                >
+                  {shownActivity.map((a) => (
+                    <div
+                      key={a.id}
+                      className="row"
+                      style={{ gap: 'var(--sp-3)' }}
+                      data-testid="activity-item"
+                    >
+                      <span className="badge badge--accent">{actionLabel(a.action, a.kind)}</span>
+                      <div className="grow">
+                        {a.place && (
+                          <div className="tiny" style={{ color: 'var(--accent)', marginBottom: 2 }}>
+                            {a.place}
+                          </div>
+                        )}
+                        <div className="small" style={{ overflowWrap: 'anywhere' }}>
+                          {a.title}
                         </div>
-                      )}
-                      <div className="small" style={{ overflowWrap: 'anywhere' }}>
-                        {a.title}
-                      </div>
-                      <div className="row tiny muted" style={{ gap: 6 }}>
-                        <span
-                          className="dot"
-                          style={{ color: memberColor(members, a.actorId), flex: '0 0 auto' }}
-                        />
-                        <span className="truncate">
-                          {members?.find((m) => m.id === a.actorId)?.name ?? a.actorName} ·{' '}
-                          {formatTime(a.at)}
-                        </span>
+                        <div className="row tiny muted" style={{ gap: 6 }}>
+                          <span
+                            className="dot"
+                            style={{ color: memberColor(members, a.actorId), flex: '0 0 auto' }}
+                          />
+                          <span className="truncate">
+                            {members?.find((m) => m.id === a.actorId)?.name ?? a.actorName} ·{' '}
+                            {formatTime(a.at)}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                  {shownActivity.length < (activity ?? []).length && (
+                    <div className="tiny muted">
+                      Показаны 25 из {activity.length} последних записей — выберите участника, чтобы
+                      найти его изменения.
+                    </div>
+                  )}
+                </div>
+              </>
             ) : (
               <div className="small muted">Пока пусто. Действия семьи появятся здесь.</div>
             )}
@@ -227,14 +336,10 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         </details>
       </section>
 
-      <div className="card">
-        <div className="card-title">Дела и сроки</div>
-        <div className="small muted" style={{ marginTop: 'var(--sp-3)' }}>
-          «Сроки»: документы, ТО, дни рождения — с напоминаниями и добавлением события в календарь
-          телефона. <Link to="/deadlines">Открыть сроки</Link>. «Дела» — общий список с
-          исполнителем, необязательным сроком и отметкой выполнения; уведомление о деле получает его
-          исполнитель. <Link to="/tasks">Открыть дела</Link>.
-        </div>
+      <div className="tiny muted sync-line">
+        {statusLine(sync.phase, sync.pendingCount)}
+        {sync.pendingCount > 0 ? ` · не отправлено: ${sync.pendingCount}` : ''} ·{' '}
+        <Link to="/settings">Настройки</Link>
       </div>
     </div>
   );
