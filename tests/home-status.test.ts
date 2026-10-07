@@ -17,8 +17,11 @@ function dayShift(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-const deadline = (over: Partial<Deadline> & { id: string; title: string }): Deadline =>
-  ({
+const deadline = (over: Partial<Deadline> & { id: string; title: string }): Deadline => {
+  // id/title обязательны в типе, но в каждом тесте приходят из `over` — здесь заглушки.
+  const base: Deadline = {
+    id: '',
+    title: '',
     rev: 1,
     kind: 'deadlines',
     createdAt: '2026-10-01T09:00:00.000Z',
@@ -34,11 +37,15 @@ const deadline = (over: Partial<Deadline> & { id: string; title: string }): Dead
     note: null,
     alertDays: null,
     warnDays: null,
-    ...over,
-  }) as Deadline;
+  };
+  return { ...base, ...over, recurrence: over.recurrence ?? base.recurrence };
+};
 
-const task = (over: Partial<Task> & { id: string; title: string }): Task =>
-  ({
+const task = (over: Partial<Task> & { id: string; title: string }): Task => {
+  const base: Task = {
+    id: '',
+    title: '',
+    recurrence: { type: 'none' },
     rev: 1,
     kind: 'tasks',
     createdAt: '2026-10-01T09:00:00.000Z',
@@ -50,8 +57,9 @@ const task = (over: Partial<Task> & { id: string; title: string }): Task =>
     dueDate: null,
     status: 'open',
     doneAt: null,
-    ...over,
-  }) as Task;
+  };
+  return { ...base, ...over, recurrence: over.recurrence ?? base.recurrence };
+};
 
 const synced: SyncStatusLike = {
   phase: 'synced',
