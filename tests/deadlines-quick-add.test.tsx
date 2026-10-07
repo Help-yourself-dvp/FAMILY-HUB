@@ -378,3 +378,32 @@ describe('Сроки и календарь: галочка при сохране
     expect(text).toContain('DTSTART;TZID=Europe/Moscow:20270501T090000');
   });
 });
+
+describe('Ступени напоминаний и предел Google', () => {
+  it('«за 4 недели» уже выбрана при создании срока («в день» и «за 7» — как раньше)', async () => {
+    render(<App ready />);
+    const form = await quickDeadline();
+
+    const fourWeeks = within(form).getByRole('button', { name: 'за 4 недели' });
+    expect(fourWeeks.getAttribute('aria-pressed')).toBe('true');
+    expect(within(form).getByRole('button', { name: 'за 7 дней' }).getAttribute('aria-pressed')).toBe('true');
+    expect(within(form).getByRole('button', { name: 'в день срока' }).getAttribute('aria-pressed')).toBe('true');
+    // Длинные ступени по умолчанию выключены: звонка по ним Google всё равно не даст.
+    expect(within(form).getByRole('button', { name: 'за 30 дней' }).getAttribute('aria-pressed')).toBe('false');
+    expect(within(form).getByRole('button', { name: 'за 90 дней' }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('выбор ступени «за 90 дней» включает рядом рабочую «за 4 недели» и объясняет почему', async () => {
+    render(<App ready />);
+    const form = await quickDeadline();
+
+    fireEvent.click(within(form).getByRole('button', { name: 'за 4 недели' }));
+    expect(within(form).getByRole('button', { name: 'за 4 недели' }).getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(within(form).getByRole('button', { name: 'за 90 дней' }));
+    expect(within(form).getByRole('button', { name: 'за 90 дней' }).getAttribute('aria-pressed')).toBe('true');
+    // Без длинной ступени подсказки нет, с длинной — появилась.
+    expect(within(form).getByText(/не принимает напоминания длиннее 4 недель/u)).toBeTruthy();
+    expect(within(form).getByRole('button', { name: 'за 4 недели' }).getAttribute('aria-pressed')).toBe('true');
+  });
+});

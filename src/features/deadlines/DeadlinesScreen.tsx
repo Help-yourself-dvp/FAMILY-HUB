@@ -43,9 +43,18 @@ export const KIND_LABEL: Record<DeadlineKind, string> = {
 const REMINDER_STEPS: Array<{ days: number; label: string }> = [
   { days: 90, label: 'за 90 дней' },
   { days: 30, label: 'за 30 дней' },
+  { days: 28, label: 'за 4 недели' },
   { days: 7, label: 'за 7 дней' },
   { days: 0, label: 'в день срока' },
 ];
+
+/**
+ * Предел календаря Google: напоминания длиннее 4 недель (28 дней) он не принимает.
+ * Поэтому у ступеней «за 30» и «за 90 дней» звонка на телефоне не будет — рядом
+ * включаем рабочую ступень «за 4 недели» (решение владельца 06.10.2026).
+ */
+const GOOGLE_REMINDER_LIMIT_DAYS = 28;
+const DEFAULT_REMINDER_STEPS = [28, 7, 0];
 
 export default function DeadlinesScreen({
   ready,
@@ -389,7 +398,7 @@ function DeadlineSheet({
   const [title, setTitle] = useState(editing?.title ?? '');
   const [kind, setKind] = useState<DeadlineKind>(editing?.deadlineKind ?? 'document');
   const [date, setDate] = useState(editing?.dueDate ?? '');
-  const [steps, setSteps] = useState<number[]>(editing?.remindersDays ?? [30, 7, 0]);
+  const [steps, setSteps] = useState<number[]>(editing?.remindersDays ?? DEFAULT_REMINDER_STEPS);
   const [customStep, setCustomStep] = useState('');
   const [alertD, setAlertD] = useState<number>(
     editing?.alertDays ?? KIND_THRESHOLDS[editing?.deadlineKind ?? 'document'].alertDays,
@@ -571,17 +580,32 @@ function DeadlineSheet({
                   className="chip"
                   aria-pressed={steps.includes(s.days)}
                   onClick={() =>
-                    setSteps((p) =>
-                      p.includes(s.days)
-                        ? p.filter((x) => x !== s.days)
-                        : [...p, s.days].sort((a, b) => b - a),
-                    )
+                    setSteps((p) => {
+                      if (p.includes(s.days)) return p.filter((x) => x !== s.days);
+                      const next = [...p, s.days];
+                      // Длинная ступень без «за 4 недели» на телефоне промолчит: Google
+                      // не принимает напоминания длиннее 4 недель. Добавляем рабочую пару.
+                      if (
+                        s.days > GOOGLE_REMINDER_LIMIT_DAYS &&
+                        !next.includes(GOOGLE_REMINDER_LIMIT_DAYS)
+                      ) {
+                        next.push(GOOGLE_REMINDER_LIMIT_DAYS);
+                      }
+                      return next.sort((a, b) => b - a);
+                    })
                   }
                 >
                   {s.label}
                 </button>
               ))}
           </div>
+          {steps.some((d) => d > GOOGLE_REMINDER_LIMIT_DAYS) ? (
+            <div className="tiny muted">
+              Google-календарь не принимает напоминания длиннее 4 недель: по ступеням «за 30» и
+              «за 90 дней» звонка не будет. Поэтому рядом всегда включена ступень «за 4 недели» —
+              она сработает и на телефоне, и в Google.
+            </div>
+          ) : null}
         </div>
         <div className="row" style={{ gap: 'var(--sp-3)', alignItems: 'center' }}>
           <button
