@@ -23,29 +23,32 @@ import {
   type IcsDownloadResult,
 } from '../../notifications/ics';
 import {
+  DEADLINE_SORT_LABEL,
   deadlineTone,
+  KIND_LABEL,
   KIND_THRESHOLDS,
+  sortDeadlines,
   TONE_COLOR,
   thresholdsFor,
+  type DeadlineSort,
 } from '../../domain/deadlineRules';
 import { useSyncState } from '../../app/hooks';
-
-export const KIND_LABEL: Record<DeadlineKind, string> = {
-  document: 'Документ',
-  vehicle: 'Машина',
-  home: 'Дом и ЖКХ',
-  insurance: 'Страховка',
-  service: 'Подписка/сервис',
-  birthday: 'День рождения',
-  custom: 'Другое',
-};
 
 const REMINDER_STEPS: Array<{ days: number; label: string }> = [
   { days: 90, label: 'за 90 дней' },
   { days: 30, label: 'за 30 дней' },
+  { days: 28, label: 'за 4 недели' },
   { days: 7, label: 'за 7 дней' },
   { days: 0, label: 'в день срока' },
 ];
+
+/**
+ * Предел календаря Google: напоминания длиннее 4 недель (28 дней) он не принимает.
+ * Поэтому у ступеней «за 30» и «за 90 дней» звонка на телефоне не будет — рядом
+ * включаем рабочую ступень «за 4 недели» (решение владельца 06.10.2026).
+ */
+const GOOGLE_REMINDER_LIMIT_DAYS = 28;
+const DEFAULT_REMINDER_STEPS = [28, 7, 0];
 
 export default function DeadlinesScreen({
   ready,
@@ -82,6 +85,7 @@ export default function DeadlinesScreen({
   // После сохранения с галочкой: окно-вопрос «добавить событие в календарь?».
   // Ничего не открываем само: скачивание и переход делает кнопка, по нажатию человека
   // (браузеры разрешают запуск/скачивание только из действия человека — это не обойти).
+  const [sort, setSort] = useState<DeadlineSort>('date');
   const [calendarPrompt, setCalendarPrompt] = useState<{ deadline: Deadline } | null>(null);
 
   /**
@@ -92,6 +96,7 @@ export default function DeadlinesScreen({
    */
   const iosNote = ios && calendarPrompt ? calendarPrompt.deadline : null;
 
+  const members = useLiveQuery(() => db.members.toArray(), [], undefined);
   const live = useMemo(() => {
     if (!rows) return null;
     return rows
@@ -137,15 +142,38 @@ export default function DeadlinesScreen({
     );
   }
 
-  const overdue = live.filter((d) => daysUntil(d.dueDate) < 0);
-  const soon = live.filter((d) => daysUntil(d.dueDate) >= 0 && daysUntil(d.dueDate) <= 30);
-  const later = live.filter((d) => daysUntil(d.dueDate) > 30);
+  const ownerName = (id: string | null | undefined) => {
+    if (!id) return 'Без ответственного';
+    return members?.find((member) => member.id === id)?.name || 'Участник недоступен';
+  };
+  const sortLive = (list: Deadline[]) => sortDeadlines(list, sort, ownerName);
+  const overdue = sortLive(live.filter((d) => daysUntil(d.dueDate) < 0));
+  const soon = sortLive(live.filter((d) => daysUntil(d.dueDate) >= 0 && daysUntil(d.dueDate) <= 30));
+  const later = sortLive(live.filter((d) => daysUntil(d.dueDate) > 30));
 
   return (
     <div className="screen">
       <div className="screen-subtitle">
         {live.length > 0 ? `${live.length} срок(ов) под наблюдением` : 'пока пусто'}
       </div>
+
+      {live.length > 1 && (
+        <label className="field">
+          <span className="field-label">Сортировать по</span>
+          <select
+            className="select"
+            aria-label="Сортировать сроки"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as DeadlineSort)}
+          >
+            {(Object.keys(DEADLINE_SORT_LABEL) as DeadlineSort[]).map((value) => (
+              <option key={value} value={value}>
+                {DEADLINE_SORT_LABEL[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       {iosNote && (
         <Banner tone="ok">
@@ -157,6 +185,10 @@ export default function DeadlinesScreen({
             <div className="small">
               Если появилось окно «Добавить в календарь» — выберите календарь и нажмите «Добавить».
               Если окна не было — нажмите «Скачать файлом» и откройте файл в «Файлы» → «Загрузки».
+            </div>
+            <div className="small">
+              <span className="strong">Не будет синхронизировано между устройствами:</span> событие
+              останется только в выбранном календаре этого телефона. Общий путь — семейная лента.
             </div>
             <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
               <button
@@ -275,6 +307,13 @@ export default function DeadlinesScreen({
       {!ios && calendarPrompt && (
         <Sheet open title="Добавить событие в календарь?" onClose={() => setCalendarPrompt(null)}>
           <div className="stack" data-testid="calendar-prompt" style={{ gap: 'var(--sp-3)' }}>
+            <Banner tone="warn">
+              <div className="grow small">
+                <span className="strong">Не будет синхронизировано между устройствами.</span> Это
+                событие появится только в календаре этого телефона — у других участников семьи его
+                не будет. Общий путь — срок сам доедет до календарей всех через семейную ленту.
+              </div>
+            </Banner>
             <div className="stack" style={{ gap: 4 }}>
               <div className="strong" style={{ fontSize: 'var(--fs-md)' }}>
                 {`Family Hub · ${calendarPrompt.deadline.title}`}
@@ -315,6 +354,11 @@ export default function DeadlinesScreen({
             <div className="tiny muted">{calendarHelp}</div>
             <div className="tiny muted">
               Файл занимает около 1 КБ и остаётся в «Загрузках» — при желании удалите его там.
+            </div>
+            <div className="tiny muted">
+              Напоминание этого события — обычное, из настроек календаря; наши ступени в нём не
+              работают. Событие останется только на этом телефоне и не появится на других
+              устройствах семьи.
             </div>
           </div>
         </Sheet>
@@ -389,7 +433,7 @@ function DeadlineSheet({
   const [title, setTitle] = useState(editing?.title ?? '');
   const [kind, setKind] = useState<DeadlineKind>(editing?.deadlineKind ?? 'document');
   const [date, setDate] = useState(editing?.dueDate ?? '');
-  const [steps, setSteps] = useState<number[]>(editing?.remindersDays ?? [30, 7, 0]);
+  const [steps, setSteps] = useState<number[]>(editing?.remindersDays ?? DEFAULT_REMINDER_STEPS);
   const [customStep, setCustomStep] = useState('');
   const [alertD, setAlertD] = useState<number>(
     editing?.alertDays ?? KIND_THRESHOLDS[editing?.deadlineKind ?? 'document'].alertDays,
@@ -401,7 +445,10 @@ function DeadlineSheet({
   const [busy, setBusy] = useState(false);
   // Галочка «Добавить в календарь телефона» — решение владельца 03.10: открывается
   // окно создания события, сохранение подтверждает человек. Выбор запоминаем.
-  const [addToCalendar, setAddToCalendar] = useState(true);
+  // По умолчанию галочка СНЯТА (решение владельца 06.10.2026): такое событие попадёт
+  // только в календарь этого телефона и не будет синхронизировано с другими устройствами.
+  // Обычный путь — срок сам доедет до календарей семьи через ленту и «мост».
+  const [addToCalendar, setAddToCalendar] = useState(false);
   useEffect(() => {
     void kvGet<boolean>(KV_KEYS.notifyCalendarAddOnSave).then((v) => {
       if (typeof v === 'boolean') setAddToCalendar(v);
@@ -571,17 +618,32 @@ function DeadlineSheet({
                   className="chip"
                   aria-pressed={steps.includes(s.days)}
                   onClick={() =>
-                    setSteps((p) =>
-                      p.includes(s.days)
-                        ? p.filter((x) => x !== s.days)
-                        : [...p, s.days].sort((a, b) => b - a),
-                    )
+                    setSteps((p) => {
+                      if (p.includes(s.days)) return p.filter((x) => x !== s.days);
+                      const next = [...p, s.days];
+                      // Длинная ступень без «за 4 недели» на телефоне промолчит: Google
+                      // не принимает напоминания длиннее 4 недель. Добавляем рабочую пару.
+                      if (
+                        s.days > GOOGLE_REMINDER_LIMIT_DAYS &&
+                        !next.includes(GOOGLE_REMINDER_LIMIT_DAYS)
+                      ) {
+                        next.push(GOOGLE_REMINDER_LIMIT_DAYS);
+                      }
+                      return next.sort((a, b) => b - a);
+                    })
                   }
                 >
                   {s.label}
                 </button>
               ))}
           </div>
+          {steps.some((d) => d > GOOGLE_REMINDER_LIMIT_DAYS) ? (
+            <div className="tiny muted">
+              Google-календарь не принимает напоминания длиннее 4 недель: по ступеням «за 30» и
+              «за 90 дней» звонка не будет. Поэтому рядом всегда включена ступень «за 4 недели» —
+              она сработает и на телефоне, и в Google.
+            </div>
+          ) : null}
         </div>
         <div className="row" style={{ gap: 'var(--sp-3)', alignItems: 'center' }}>
           <button
@@ -595,8 +657,11 @@ function DeadlineSheet({
           <div className="grow">
             <div>Добавить в календарь телефона</div>
             <div className="tiny muted">
-              Откроется окно создания события с названием, датой и временем — сохраните его там.
-              Напоминания в окне обычные (из настроек календаря); наши ступени ведёт приложение.
+              Такое событие попадёт <span className="strong">только в календарь этого
+              телефона</span> и не будет синхронизировано между устройствами — у семьи его не
+              появится. Обычно галочка не нужна: срок сам доедет до календарей всех участников
+              через семейную ленту (около 15 минут). Включайте, только если событие нужно в
+              календаре прямо сейчас. Откроется окно создания события — сохраните его там.
             </div>
           </div>
         </div>

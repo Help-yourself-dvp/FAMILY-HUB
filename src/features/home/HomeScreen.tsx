@@ -2,7 +2,7 @@
  * Главная — семейный dashboard (ТЗ §14: не перегружать).
  * На ЭТАПЕ 1 показывает реальные счётчики из локальной БД + «Семейную ленту».
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../data/db';
@@ -13,14 +13,14 @@ import { Banner, Icon, Skeleton, Stat } from '../../design/ui';
 import { useSyncState } from '../../app/hooks';
 import { PHASE_LABEL } from '../../data/sync/state';
 import { homeTaskList, taskDateLabel } from '../../domain/taskRules';
+import { ACTIVITY_SORT_LABEL, sortActivity, type ActivitySort } from '../../domain/activityRules';
 
 export default function HomeScreen({ ready }: { ready: boolean }) {
   const items = useLiveQuery(() => db.shopping.toArray(), [], undefined);
-  const activity = useLiveQuery(
-    () => db.activity.orderBy('at').reverse().limit(15).toArray(),
-    [],
-    undefined,
-  );
+  // Лента грузится «с запасом»: по умолчанию показываем 25 последних, а при сортировке
+  // «по участнику»/«по типу» записи человека находятся даже среди давних (просьба 06.10.2026).
+  const activity = useLiveQuery(() => db.activity.orderBy('at').reverse().limit(100).toArray(), [], undefined);
+  const activityTotal = useLiveQuery(() => db.activity.count(), [], undefined);
   const members = useLiveQuery(() => db.members.toArray(), [], undefined);
   const tasks = useLiveQuery(() => db.tasks.toArray(), [], undefined);
   const nearbyTasks = useMemo(() => homeTaskList(tasks ?? []), [tasks]);
@@ -30,6 +30,23 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
     undefined,
   );
   const sync = useSyncState();
+  const [activitySort, setActivitySort] = useState<ActivitySort>('new');
+  const [activityActor, setActivityActor] = useState<string>('all');
+
+  // Участники для выпадающего фильтра берём из самой ленты: так в списке останутся даже
+  // те, кого потом удалили из семьи (их записи всё равно в ленте).
+  const activityActors = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const entry of activity ?? []) {
+      if (!seen.has(entry.actorId)) seen.set(entry.actorId, entry.actorName || 'Участник');
+    }
+    return [...seen.entries()].map(([id, name]) => ({ id, name }));
+  }, [activity]);
+
+  const shownActivity = useMemo(() => {
+    const list = (activity ?? []).filter((a) => activityActor === 'all' || a.actorId === activityActor);
+    return sortActivity(list, activitySort).slice(0, 25);
+  }, [activity, activitySort, activityActor]);
 
   const stats = useMemo(() => {
     if (!items) return null;
@@ -186,16 +203,52 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
         <details className="acc">
           <summary className="acc-summary">
             <span className="grow">
-              Семейная лента{activity && activity.length > 0 ? ` · ${activity.length}` : ''}
+              Семейная лента{activityTotal ? ` · ${activityTotal}` : ''}
             </span>
             <span className="acc-hint">Кто что добавил, купил или изменил</span>
             <Icon name="chevron" size={18} className="chev" />
           </summary>
           <div className="acc-body stack">
             {activity && activity.length > 0 ? (
-              <div className="card stack" style={{ gap: 'var(--sp-3)' }}>
-                {activity.map((a) => (
-                  <div key={a.id} className="row" style={{ gap: 'var(--sp-3)' }}>
+              <>
+                <div className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                  <label className="field grow" style={{ minWidth: 150 }}>
+                    <span className="field-label">Сортировать по</span>
+                    <select
+                      className="select"
+                      aria-label="Сортировать ленту"
+                      value={activitySort}
+                      onChange={(event) => setActivitySort(event.target.value as ActivitySort)}
+                    >
+                      {(Object.keys(ACTIVITY_SORT_LABEL) as ActivitySort[]).map((value) => (
+                        <option key={value} value={value}>
+                          {ACTIVITY_SORT_LABEL[value]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {activityActors.length > 1 && (
+                    <label className="field grow" style={{ minWidth: 150 }}>
+                      <span className="field-label">Кто</span>
+                      <select
+                        className="select"
+                        aria-label="Кто в ленте"
+                        value={activityActor}
+                        onChange={(event) => setActivityActor(event.target.value)}
+                      >
+                        <option value="all">Все участники</option>
+                        {activityActors.map((actor) => (
+                          <option key={actor.id} value={actor.id}>
+                            {actor.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+              <div className="card stack" style={{ gap: 'var(--sp-3)' }} data-testid="activity-list">
+                {shownActivity.map((a) => (
+                  <div key={a.id} className="row" style={{ gap: 'var(--sp-3)' }} data-testid="activity-item">
                     <span className="badge badge--accent">{actionLabel(a.action, a.kind)}</span>
                     <div className="grow">
                       {a.place && (
@@ -219,7 +272,14 @@ export default function HomeScreen({ ready }: { ready: boolean }) {
                     </div>
                   </div>
                 ))}
+                {shownActivity.length < (activity ?? []).length && (
+                  <div className="tiny muted">
+                    Показаны 25 из {activity.length} последних записей — выберите участника, чтобы
+                    найти его изменения.
+                  </div>
+                )}
               </div>
+              </>
             ) : (
               <div className="small muted">Пока пусто. Действия семьи появятся здесь.</div>
             )}
