@@ -1,10 +1,11 @@
-/** Настройки · DiagnosticsSection */
+/** «Для разработчика» · диагностика устройства и приложения (07.10.2026). */
+/* Раньше жила внутри Настроек — вынесена на отдельную страницу /dev. */
 import { useEffect, useState } from 'react';
 import { Icon, Sheet } from '../../design/ui';
 import { copyText } from '../../shared/clipboard';
 import { useSyncState } from '../../app/hooks';
 import { notificationChannels, isStandalone, isIos } from '../../notifications/channels';
-import { readDisplayMode } from './helpers';
+import { readDisplayMode } from '../settings/helpers';
 import { log } from '../../shared/log';
 import { SCHEMA_VERSION } from '../../domain/types';
 import { notificationDeliverySnapshot } from '../../notifications/deliveryState';

@@ -119,6 +119,21 @@ export function humanizeDelta(days: number): string {
   let word = 'дней';
   if (mod10 === 1 && mod100 !== 11) word = 'день';
   else if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) word = 'дня';
+  // Большие сроки считаем в годах: «через 1018 дней» читается плохо и выглядит как
+  // ошибка, а «через 2 года 9 мес.» понятно сразу (замечание владельца 07.10.2026).
+  // Год — 365 дней, месяц — 30; это приблизительно и так и подаётся.
+  if (abs >= 365) {
+    const years = Math.floor(abs / 365);
+    const months = Math.floor((abs % 365) / 30);
+    const yearWord =
+      years % 10 === 1 && years % 100 !== 11
+        ? 'год'
+        : years % 10 >= 2 && years % 10 <= 4 && (years % 100 < 12 || years % 100 > 14)
+          ? 'года'
+          : 'лет';
+    const tail = months > 0 ? ` ${months} мес.` : '';
+    return days > 0 ? `через ${years} ${yearWord}${tail}` : `${years} ${yearWord}${tail} назад`;
+  }
   return days > 0 ? `через ${abs} ${word}` : `${abs} ${word} назад`;
 }
 
