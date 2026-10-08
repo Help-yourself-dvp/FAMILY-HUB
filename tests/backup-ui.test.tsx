@@ -9,7 +9,7 @@ import DataSection from '../src/features/settings/DataSection';
 import { db } from '../src/data/db';
 import type { ShoppingItem, Task } from '../src/domain/types';
 
-const restartSync = vi.fn().mockResolvedValue(true);
+const restartSync = vi.fn<() => Promise<boolean>>(() => Promise.resolve(true));
 vi.mock('../src/app/bootstrap', () => ({
   restartSync: () => restartSync(),
 }));
