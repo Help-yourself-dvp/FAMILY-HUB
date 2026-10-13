@@ -17,6 +17,18 @@ export function buildFeedIcs(input: {
   tasks?: unknown;
 }): string;
 
+export const WIDGET_FORMAT: string;
+export function widgetPath(slug: string): string;
+export function daysUntil(today: string, dateOnly: string): number | null;
+export function humanDays(days: number | null): string;
+export function buildWidgetSummary(input?: {
+  deadlines?: unknown;
+  tasks?: unknown;
+  sections?: { deadlines?: boolean; tasks?: boolean };
+  today?: string;
+  now?: string;
+}): Record<string, unknown>;
+
 export function newFeedSlug(random?: () => string): string;
 export function feedUrl(input: {
   owner: string;

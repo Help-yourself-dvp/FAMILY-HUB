@@ -54,6 +54,7 @@ const TASKS = {
 /** Фейки окружения: запоминают вызовы, чтобы проверять побочные эффекты. */
 function makeDeps(over: Partial<Parameters<typeof runFeedPublish>[0]> = {}) {
   const published: { section: string; slug: string; content: string }[] = [];
+  const jsons: { section: string; slug: string; content: string }[] = [];
   const deleted: string[] = [];
   const written: { path: string; data: unknown; message: string }[] = [];
   const notes: [string, string][] = [];
@@ -81,6 +82,18 @@ function makeDeps(over: Partial<Parameters<typeof runFeedPublish>[0]> = {}) {
       published.push({ section, slug, content });
       return Promise.resolve();
     },
+    publishJson: ({
+      section,
+      slug,
+      content,
+    }: {
+      section: string;
+      slug: string;
+      content: string;
+    }) => {
+      jsons.push({ section, slug, content });
+      return Promise.resolve();
+    },
     deleteIcs: (slug: string) => {
       deleted.push(slug);
       return Promise.resolve(true);
@@ -89,7 +102,7 @@ function makeDeps(over: Partial<Parameters<typeof runFeedPublish>[0]> = {}) {
     now: () => '2026-10-05T17:00:00.000Z',
     ...over,
   };
-  return { deps, published, deleted, written, notes };
+  return { deps, published, jsons, deleted, written, notes };
 }
 
 describe('настройки ленты (parseFeedSettings)', () => {
@@ -114,11 +127,58 @@ describe('настройки ленты (parseFeedSettings)', () => {
   });
 });
 
+describe('сводка для виджета (feed/<секрет>.json)', () => {
+  it('публикуется рядом с каждым .ics и читается как готовая строка', async () => {
+    const { deps, jsons } = makeDeps();
+    await runFeedPublish(deps);
+
+    expect(jsons.map((j) => j.slug)).toEqual(['a'.repeat(32), 'b'.repeat(32)]);
+    const summary = JSON.parse(jsons[0]?.content ?? '{}') as Record<string, unknown>;
+    expect(summary.format).toBe('family-hub-widget');
+    expect(summary.sections).toEqual({ deadlines: true, tasks: true });
+    // 2026-10-05 → 2026-11-15: 41 день; дела — 46 дней.
+    expect(summary.deadline).toMatchObject({ title: 'ТО автомобиля', days: 41, human: 'через 41 день' });
+    expect(summary.line).toBe('ТО автомобиля — через 41 день · дел: 1');
+  });
+
+  it('выключенный раздел не попадает в сводку — те же выключатели, что у ленты', async () => {
+    const { deps, jsons } = makeDeps({
+      getJson: (path: string) =>
+        Promise.resolve(
+          path === 'data/feed.json'
+            ? { ...SETTINGS, sections: { deadlines: true, tasks: false } }
+            : path === 'data/deadlines.json'
+              ? DEADLINES
+              : TASKS,
+        ),
+    });
+    await runFeedPublish(deps);
+
+    const summary = JSON.parse(jsons[0]?.content ?? '{}') as Record<string, unknown>;
+    expect(summary.sections).toEqual({ deadlines: true, tasks: false });
+    expect(summary.openTasks).toBe(0);
+    expect(summary.task).toBeNull();
+    expect(summary.line).toBe('ТО автомобиля — через 41 день');
+  });
+
+  it('сбой публикации сводки не ломает ленту — только предупреждение', async () => {
+    const { deps, published, notes } = makeDeps({
+      publishJson: () => Promise.reject(new Error('HTTP 500')),
+    });
+    const result = await runFeedPublish(deps);
+
+    expect(result.published).toBe(2);
+    expect(result.widgets).toBe(0);
+    expect(published).toHaveLength(2);
+    expect(notes.some(([level, text]) => level === 'warning' && text.includes('виджета'))).toBe(true);
+  });
+});
+
 describe('цикл публикации (runFeedPublish)', () => {
   it('оба включённых раздела публикуются с событиями и отметкой времени', async () => {
     const { deps, published, written } = makeDeps();
     const result = await runFeedPublish(deps);
-    expect(result).toEqual({ enabled: true, published: 2, removed: 0 });
+    expect(result).toEqual({ enabled: true, published: 2, widgets: 2, removed: 0 });
 
     const deadlines = published.find((p) => p.section === 'deadlines');
     const tasks = published.find((p) => p.section === 'tasks');
@@ -181,7 +241,7 @@ describe('цикл публикации (runFeedPublish)', () => {
       getJson: (path: string) => Promise.resolve(path === 'data/feed.json' ? null : DEADLINES),
     });
     const result = await runFeedPublish(deps);
-    expect(result).toEqual({ enabled: false, published: 0, removed: 0 });
+    expect(result).toEqual({ enabled: false, published: 0, widgets: 0, removed: 0 });
     expect(published).toHaveLength(0);
     expect(written).toHaveLength(0);
     // Предупреждений нет: молчание здесь — правильное поведение.

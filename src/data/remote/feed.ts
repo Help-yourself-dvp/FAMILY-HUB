@@ -75,6 +75,16 @@ export function feedUrl(cfg: FeedConfig, slug: string): string {
   return `https://raw.githubusercontent.com/${cfg.owner}/${cfg.repo}/${cfg.branch}/feed/${slug}.ics`;
 }
 
+/**
+ * Адрес короткой сводки для виджета на рабочем столе (0.6.30). Тот же секрет, что у
+ * календаря: «ближайший срок · сколько дел». Рисует виджет не приложение (веб-страница
+ * так не умеет), а программа-виджет на телефоне — она читает этот адрес и обновляет
+ * надпись сама.
+ */
+export function widgetUrl(cfg: FeedConfig, slug: string): string {
+  return `https://raw.githubusercontent.com/${cfg.owner}/${cfg.repo}/${cfg.branch}/feed/${slug}.json`;
+}
+
 function parseState(raw: unknown): FeedState | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const doc = raw as Record<string, unknown>;

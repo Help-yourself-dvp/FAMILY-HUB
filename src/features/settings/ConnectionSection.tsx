@@ -23,7 +23,12 @@ interface Cfg {
   branch: string;
 }
 
-export default function ConnectionSection() {
+export default function ConnectionSection({
+  initialOpen = false,
+}: {
+  /** Открыть секцию сразу: ссылка «Открыть настройки подключения» с «Для разработчика». */
+  initialOpen?: boolean;
+} = {}) {
   const sync = useSyncState();
   const [owner, setOwner] = useState('');
   const [repo, setRepo] = useState('');
@@ -34,6 +39,7 @@ export default function ConnectionSection() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
 
   // ---- код подключения для второго устройства ----
   const [codeOpen, setCodeOpen] = useState(false);
@@ -191,8 +197,8 @@ export default function ConnectionSection() {
   };
 
   return (
-    <section className="stack">
-      <details className="acc">
+    <section className="stack" id="connection">
+      <details className="acc" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
         <summary className="acc-summary">
           <span className="grow">Семейный репозиторий</span>
           <span className="acc-hint">Хранилище семьи, код подключения, срок ключа</span>
@@ -212,7 +218,7 @@ export default function ConnectionSection() {
             ) : (
               <Banner tone="warn">
                 <div className="grow">
-                  <div className="strong">Локальный режим</div>
+                  <div className="strong">Хранилище не подключено</div>
                   <div className="small">
                     Приложение полностью работает, но данные видны только на этом устройстве. Чтобы
                     делиться списками с семьёй, подключите приватный репозиторий.

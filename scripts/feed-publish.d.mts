@@ -15,6 +15,7 @@ export interface FeedPublishDeps {
   getJson: (path: string) => Promise<unknown>;
   putJson: (path: string, data: unknown, message: string) => Promise<void>;
   publishIcs: (args: { section: string; slug: string; content: string }) => Promise<void>;
+  publishJson?: (args: { section: string; slug: string; content: string }) => Promise<void>;
   deleteIcs: (slug: string) => Promise<boolean>;
   log?: (message: string) => void;
   annotation?: (level: string, message: string) => void;
@@ -24,6 +25,7 @@ export interface FeedPublishDeps {
 export interface FeedPublishSummary {
   enabled: boolean;
   published: number;
+  widgets: number;
   removed: number;
 }
 

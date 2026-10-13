@@ -23,6 +23,16 @@ export interface DeadlineThresholds {
   warnDays: number;
 }
 
+export const KIND_LABEL: Record<DeadlineKind, string> = {
+  document: 'Документ',
+  vehicle: 'Машина',
+  home: 'Дом и ЖКХ',
+  insurance: 'Страховка',
+  service: 'Подписка/сервис',
+  birthday: 'День рождения',
+  custom: 'Другое',
+};
+
 export const KIND_THRESHOLDS: Record<DeadlineKind, DeadlineThresholds> = {
   document: { alertDays: 90, warnDays: 365 },
   vehicle: { alertDays: 14, warnDays: 30 },
@@ -61,3 +71,95 @@ export const TONE_COLOR: Record<DeadlineTone, string> = {
   warn: 'var(--warn)',
   ok: 'var(--ok)',
 };
+
+/**
+ * Цвет тона для ТЕКСТА (значок «через N дней», подписи). Отдельный от рамок: рамке
+ * достаточно насыщенного цвета, а тексту нужен контраст ≥ 4.5 к белому (07.10.2026).
+ */
+export const TONE_TEXT_COLOR: Record<DeadlineTone, string> = {
+  overdue: 'var(--err-text)',
+  alert: 'var(--err-text)',
+  warn: 'var(--warn-text)',
+  ok: 'var(--text-2)',
+};
+
+/** Сортировка списка сроков (просьба владельца 06.10.2026: не только по дате). */
+export type DeadlineSort = 'date' | 'kind' | 'owner' | 'title';
+
+export const DEADLINE_SORT_LABEL: Record<DeadlineSort, string> = {
+  date: 'По дате',
+  kind: 'По типу',
+  owner: 'По ответственному',
+  title: 'По названию',
+};
+
+/** Порядок по дате — прежний и единственный «естественный» для сроков. */
+function byDueDate(a: Deadline, b: Deadline): number {
+  return a.dueDate.localeCompare(b.dueDate) || a.id.localeCompare(b.id);
+}
+
+/**
+ * Ближайшие сроки для Главной: строго по дате, сначала самое близкое, удалённые
+ * пропускаем. Раньше карточка показывала первые три записи как они лежат в базе, и
+ * рядом с «через 42 дня» мог оказаться срок «через 1018 дней» (дефект 0.6.24 → 0.6.25).
+ */
+export function nearestDeadlines(list: Deadline[], limit = 3): Deadline[] {
+  return list
+    .filter((d) => !d.deletedAt)
+    .sort(byDueDate)
+    .slice(0, limit);
+}
+
+export interface HomeDeadlinesOptions {
+  /** Сколько показывать как минимум, даже если близких сроков мало. */
+  min?: number;
+  /** Сколько показывать как максимум, сколько бы ни было срочного. */
+  max?: number;
+  /** «Близкие» — сколько дней вперёд; такие показываем все (в пределах max). */
+  withinDays?: number;
+}
+
+/**
+ * Сроки для карточки на Главной. Раньше показывались жёстко три записи: если в
+ * ближайшие дни их десять, часть срочного оставалась невидимой (вопрос владельца
+ * 07.10.2026). Правило: минимум три, дальше все «близкие» (в пределах withinDays,
+ * включая просроченные), но не больше max — иначе Главная превращается в список.
+ */
+export function homeDeadlines(
+  list: Deadline[],
+  { min = 3, max = 8, withinDays = 7 }: HomeDeadlinesOptions = {},
+): { shown: Deadline[]; total: number } {
+  const live = list.filter((d) => !d.deletedAt).sort(byDueDate);
+  const urgent = live.filter((d) => daysUntil(d.dueDate) <= withinDays).length;
+  const take = Math.max(min, Math.min(urgent, max));
+  return { shown: live.slice(0, take), total: live.length };
+}
+
+/**
+ * Сортировка сроков для выбранного порядка. Имя ответственного передаёт экран
+ * (`ownerName`): домен не знает про базу участников. Внутри группы — по дате, чтобы
+ * срочное всегда было выше, а порядок совпадал на всех телефонах.
+ */
+export function sortDeadlines(
+  list: Deadline[],
+  sort: DeadlineSort,
+  ownerName: (id: string | null | undefined) => string,
+): Deadline[] {
+  const copy = [...list];
+  switch (sort) {
+    case 'kind':
+      return copy.sort(
+        (a, b) =>
+          KIND_LABEL[a.deadlineKind].localeCompare(KIND_LABEL[b.deadlineKind], 'ru') ||
+          byDueDate(a, b),
+      );
+    case 'owner':
+      return copy.sort(
+        (a, b) => ownerName(a.ownerId).localeCompare(ownerName(b.ownerId), 'ru') || byDueDate(a, b),
+      );
+    case 'title':
+      return copy.sort((a, b) => a.title.localeCompare(b.title, 'ru') || byDueDate(a, b));
+    default:
+      return copy.sort(byDueDate);
+  }
+}

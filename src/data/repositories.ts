@@ -150,6 +150,30 @@ export const shoppingRepo = {
   },
 
   /**
+   * Возврат только что удалённой позиции («Отменить» под списком, 07.10.2026).
+   * Снимает tombstone: новый rev/updatedAt выигрывает у удаления при синхронизации,
+   * поэтому позиция не «воскреснет» только локально, а вернётся и на других телефонах.
+   */
+  async restore(id: string): Promise<void> {
+    const cur = await db.shopping.get(id);
+    if (!cur || !cur.deletedAt) return;
+    const s = stamp();
+    const next: ShoppingItem = {
+      ...cur,
+      deletedAt: null,
+      rev: cur.rev + 1,
+      updatedAt: s.updatedAt,
+      updatedBy: s.updatedBy,
+    };
+    await db.shopping.put(next);
+    await appendActivity('created', next.title, undefined, {
+      kind: 'shopping',
+      place: placeLabel('shopping', next.category),
+    });
+    notifyLocalChange();
+  },
+
+  /**
    * «Повторить корзину»: завершённые позиции возвращаются в список активными.
    * Типичный сценарий семьи: недельная корзина повторяется с небольшими правками.
    */

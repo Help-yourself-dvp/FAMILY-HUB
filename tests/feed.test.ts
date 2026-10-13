@@ -10,12 +10,16 @@ import {
   CALENDAR_TIMEZONE,
   alarmTrigger,
   buildFeedIcs,
+  buildWidgetSummary,
+  daysUntil,
   feedPath,
   feedUrl,
   feedableDeadlines,
   feedableTasks,
+  humanDays,
   newFeedSlug,
   reminderSteps,
+  widgetPath,
 } from '../scripts/feed.mjs';
 import senderSource from '../scripts/push-sender.mjs?raw';
 import feedPublishSource from '../scripts/feed-publish.mjs?raw';
@@ -259,5 +263,89 @@ describe('лента публикуется быстро и без зависи�
 
   it('расписание просит GitHub как можно чаще (5 минут) — замер 03–05.10.2026', () => {
     expect(workflow).toContain("cron: '*/5 * * * *'");
+  });
+});
+
+/* ------------------------- Сводка для виджета (0.6.30) ------------------------- */
+
+const widgetDeadline = (over: Record<string, unknown> = {}) => ({
+  title: 'ТО автомобиля',
+  dueDate: '2026-11-15',
+  deletedAt: null,
+  visibility: 'family',
+  ...over,
+});
+
+const widgetTask = (over: Record<string, unknown> = {}) => ({
+  title: 'Забрать документы',
+  dueDate: '2026-10-04',
+  status: 'open',
+  deletedAt: null,
+  ...over,
+});
+
+describe('сводка для виджета на рабочем столе', () => {
+  it('считает дни до даты и подписывает их словами', () => {
+    expect(daysUntil('2026-10-05', '2026-11-15')).toBe(41);
+    expect(daysUntil('2026-10-05', '2026-10-05')).toBe(0);
+    expect(daysUntil('2026-10-05', '2026-10-04')).toBe(-1);
+    expect(daysUntil('2026-10-05', 'не дата')).toBeNull();
+
+    expect(humanDays(0)).toBe('сегодня');
+    expect(humanDays(1)).toBe('завтра');
+    expect(humanDays(-1)).toBe('вчера');
+    expect(humanDays(41)).toBe('через 41 день');
+    expect(humanDays(3)).toBe('через 3 дня');
+    expect(humanDays(5)).toBe('через 5 дней');
+    expect(humanDays(-4)).toBe('просрочено на 4 дня');
+    expect(humanDays(400)).toBe('через 1 год 1 мес.');
+    expect(humanDays(1018)).toBe('через 2 года 9 мес.');
+  });
+
+  it('даёт готовую строку «ближайший срок · сколько дел»', () => {
+    const summary = buildWidgetSummary({
+      deadlines: [widgetDeadline()],
+      tasks: [widgetTask(), widgetTask({ title: 'Купить лампу', dueDate: '2026-11-20' })],
+      sections: { deadlines: true, tasks: true },
+      today: '2026-10-05',
+      now: '2026-10-05T17:00:00.000Z',
+    });
+
+    expect(summary.format).toBe('family-hub-widget');
+    expect(summary.line).toBe('ТО автомобиля — через 41 день · дел: 2 (просрочено 1)');
+    expect(summary.short).toBe('ТО автомобиля — через 41 день');
+    expect(summary.overdueTasks).toBe(1);
+    expect(summary.deadline).toMatchObject({ days: 41, date: '2026-11-15' });
+  });
+
+  it('приватный срок в сводку не попадает никогда', () => {
+    const summary = buildWidgetSummary({
+      deadlines: [widgetDeadline({ title: 'Личное', visibility: 'private', dueDate: '2026-10-06' })],
+      tasks: [],
+      sections: { deadlines: true, tasks: true },
+      today: '2026-10-05',
+    });
+    expect(summary.deadline).toBeNull();
+    expect(summary.line).toBe('дел: 0');
+  });
+
+  it('выключенные разделы не попадают в сводку — те же выключатели, что у ленты', () => {
+    const summary = buildWidgetSummary({
+      deadlines: [widgetDeadline()],
+      tasks: [widgetTask()],
+      sections: { deadlines: false, tasks: false },
+      today: '2026-10-05',
+    });
+    expect(summary.sections).toEqual({ deadlines: false, tasks: false });
+    expect(summary.deadline).toBeNull();
+    expect(summary.openTasks).toBe(0);
+    expect(summary.line).toBe('');
+  });
+
+  it('адрес сводки — тот же секрет, что у календаря, но файл .json', () => {
+    const slug = 'a'.repeat(32);
+    expect(widgetPath(slug)).toBe(`feed/${slug}.json`);
+    expect(feedPath(slug)).toBe(`feed/${slug}.ics`);
+    expect(feedUrl({ owner: 'o', repo: 'r', slug })).toContain(`/feed/${slug}.ics`);
   });
 });

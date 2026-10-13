@@ -216,7 +216,8 @@ export type IconName =
   | 'info'
   | 'shield'
   | 'bell'
-  | 'chevron';
+  | 'chevron'
+  | 'dots';
 
 const PATHS: Record<IconName, string> = {
   home: 'M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
@@ -239,6 +240,9 @@ const PATHS: Record<IconName, string> = {
   shield: 'M12 3 5 6v6c0 4.4 3 8 7 9 4-1 7-4.6 7-9V6z',
   bell: 'M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6M10 20a2 2 0 0 0 4 0',
   chevron: 'm9 6 6 6-6 6',
+  // «Ещё действия» у секции (07.10.2026): глобальные действия вроде «Очистить
+  // купленное» убираем из общей строки, чтобы не удалить лишнее одним касанием.
+  dots: 'M5 12h.01M12 12h.01M19 12h.01',
 };
 
 const FILLED: ReadonlySet<IconName> = new Set<IconName>(['home']);

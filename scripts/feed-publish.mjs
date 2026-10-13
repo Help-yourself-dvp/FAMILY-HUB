@@ -18,7 +18,11 @@
  *   2. собирает .ics для каждого раздела из data/deadlines.json и data/tasks.json;
  *      выключенный раздел публикуется ПУСТЫМ календарём — подписка очистится, а не
  *      останется со старыми событиями;
- *   3. удаляет файлы прошлых ссылок (после «Сменить ссылку») и пишет отметку
+ *   3. кладёт рядом с каждым .ics файл-сводку для виджета на рабочем столе
+ *      (feed/<секрет>.json): «ближайший срок · сколько дел». Виджет рисует не
+ *      веб-приложение (оно так не умеет), а программа-виджет на телефоне — она читает
+ *      этот файл и сама обновляет надпись по расписанию (0.6.30);
+ *   4. удаляет файлы прошлых ссылок (после «Сменить ссылку») и пишет отметку
  *      publishedAt в data/feed.json — её показывает приложение («Обновлено: …»).
  *
  * Сбой одного раздела не должен ронять остальное: лента — отдельный канал, и частично
@@ -26,7 +30,7 @@
  *
  * Проверка: tests/feed-publish.test.ts — на вымышленных данных, без сети.
  */
-import { buildFeedIcs } from './feed.mjs';
+import { buildFeedIcs, buildWidgetSummary, widgetPath } from './feed.mjs';
 import { entityRows } from './push-sender-data.mjs';
 
 /** Разделы ленты в фиксированном порядке: файлы создаются детерминированно. */
@@ -64,6 +68,8 @@ export function parseFeedSettings(raw) {
  * @param {(path: string, data: unknown, message: string) => Promise<void>} deps.putJson
  *   запись JSON в семейное хранилище (сама решает конфликты повтором)
  * @param {(args: { section: string, slug: string, content: string }) => Promise<void>} deps.publishIcs
+ * @param {(args: { section: string, slug: string, content: string }) => Promise<void>} deps.publishJson
+ *   публикация файла-сводки для виджета (feed/<slug>.json)
  * @param {(slug: string) => Promise<boolean>} deps.deleteIcs
  * @param {(message: string) => void} [deps.log]
  * @param {(level: string, message: string) => void} [deps.annotation]
@@ -75,12 +81,13 @@ export async function runFeedPublish({
   getJson,
   putJson,
   publishIcs,
+  publishJson = async () => {},
   deleteIcs,
   log = () => {},
   annotation = () => {},
   now = () => new Date().toISOString(),
 }) {
-  const summary = { enabled: false, published: 0, removed: 0 };
+  const summary = { enabled: false, published: 0, widgets: 0, removed: 0 };
 
   if (!env?.public || !env?.publicToken) {
     annotation('warning', 'Лента: нет доступа к публичному репозиторию — публикация пропущена.');
@@ -112,6 +119,20 @@ export async function runFeedPublish({
       }),
   ]);
 
+  // Сводка для виджета: собирается один раз и кладётся под каждым включённым адресом —
+  // какая бы ссылка ни была у человека на телефоне, файл найдётся по той же секретной части.
+  const widget = JSON.stringify(
+    buildWidgetSummary({
+      deadlines,
+      tasks,
+      sections: settings.sections,
+      today: (now() || '').slice(0, 10),
+      now: now(),
+    }),
+    null,
+    2,
+  );
+
   for (const section of FEED_SECTIONS) {
     const slug = settings.slugs[section];
     // Выключенный раздел публикуем ПУСТЫМ календарём: подписка очистится, а не
@@ -129,6 +150,13 @@ export async function runFeedPublish({
     } catch (e) {
       // Один раздел не должен мешать другому: файл сроков важнее файла дел.
       annotation('warning', `Лента (${section}): публикация не удалась (${e?.message || 'сбой'}).`);
+    }
+    try {
+      await publishJson({ section, slug, content: widget });
+      summary.widgets += 1;
+    } catch (e) {
+      // Виджет — необязательное удобство: без него лента обязана остаться рабочей.
+      annotation('warning', `Лента (${section}): сводка для виджета не опубликована (${e?.message || 'сбой'}).`);
     }
   }
 
@@ -163,7 +191,7 @@ export async function runFeedPublish({
     'notice',
     `Лента: разделы ${settings.sections.deadlines ? 'сроки' : ''}${
       settings.sections.deadlines && settings.sections.tasks ? ' + ' : ''
-    }${settings.sections.tasks ? 'дела' : ''}, файлов опубликовано ${summary.published}, старых ссылок удалено ${summary.removed}.`,
+    }${settings.sections.tasks ? 'дела' : ''}, файлов опубликовано ${summary.published}, сводок для виджета ${summary.widgets}, старых ссылок удалено ${summary.removed}.`,
   );
   return summary;
 }
@@ -289,6 +317,30 @@ function makePublishIcs(publicRepo, publicToken) {
   };
 }
 
+/**
+ * Публикация сводки для виджета (feed/<slug>.json) — тем же секретом, что и календарь.
+ * Ветку создаёт публикация .ics: этот шаг лишь кладёт файл (порядок в цикле гарантирован).
+ */
+function makePublishJson(publicRepo, publicToken) {
+  const branch = 'feed';
+  return async function publishJsonImpl({ slug, content }) {
+    const call = (path, init = {}) => gh(publicToken, publicRepo, path, init);
+    const path = widgetPath(slug);
+    const cur = await call(`/contents/${path}?ref=${branch}`);
+    const sha = cur.ok ? (await cur.json()).sha : undefined;
+    const put = await call(`/contents/${path}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        message: 'feed: обновить сводку для виджета',
+        content: Buffer.from(content, 'utf-8').toString('base64'),
+        branch,
+        ...(sha ? { sha } : {}),
+      }),
+    });
+    if (!put.ok) throw new Error(`widget: публикация не удалась (HTTP ${put.status})`);
+  };
+}
+
 /** Удаление файла прошлой ссылки: старое должно перестать работать. */
 function makeDeleteIcs(publicRepo, publicToken) {
   return async function deleteIcs(slug) {
@@ -330,6 +382,7 @@ async function main() {
     getJson: makeGetJson(familyRepo, familyToken),
     putJson: makePutJson(familyRepo, familyToken),
     publishIcs: makePublishIcs(publicRepo, publicToken),
+    publishJson: makePublishJson(publicRepo, publicToken),
     deleteIcs: makeDeleteIcs(publicRepo, publicToken),
     log: (m) => console.log(m),
     annotation,

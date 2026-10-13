@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { flushNow, syncNow } from '../../data/sync/engine';
 import { useSyncState } from '../../app/hooks';
-import { PHASE_LABEL } from '../../data/sync/state';
+import { phaseLabel } from '../../data/sync/state';
 import { Banner, Icon } from '../../design/ui';
 import { suggestFix, toneColor } from './helpers';
 
@@ -35,7 +35,7 @@ export default function SyncSection() {
                   className={`dot ${sync.phase === 'syncing' ? 'dot--pulse' : ''}`}
                   style={{ color: toneColor(sync.phase) }}
                 />
-                <span className="strong">{PHASE_LABEL[sync.phase]}</span>
+                <span className="strong">{phaseLabel(sync.phase, sync.pendingCount)}</span>
               </div>
               <span className="badge">{sync.online ? 'сеть есть' : 'нет сети'}</span>
             </div>

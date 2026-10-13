@@ -193,3 +193,135 @@ export function feedUrl({ owner, repo, branch = 'feed', slug }) {
 export function feedPath(slug) {
   return `feed/${slug}.ics`;
 }
+
+/* ----------------------- Сводка для виджета на рабочем столе ----------------------- */
+
+/**
+ * Короткая сводка «ближайший срок · сколько дел» для виджета на рабочем столе (0.6.30).
+ *
+ * Зачем файл, если виджет нарисовать веб-приложение не может: настоящий виджет Android —
+ * функция платформы, а не веб-страницы. Зато приложение может положить рядом с лентой
+ * маленький файл, который прочитает программа-виджет на телефоне (MacroDroid, KWGT) —
+ * она же обновляет надпись по расписанию. Адрес — та же секретная часть, что у календаря.
+ *
+ * Выключатели те же, что у ленты: выключенный раздел в сводку не попадает (приватные
+ * сроки не попадают никогда — см. feedableDeadlines).
+ */
+export const WIDGET_FORMAT = 'family-hub-widget';
+
+/** Путь файла-сводки в публичном репозитории (рядом с .ics, в ветке ленты). */
+export function widgetPath(slug) {
+  return `feed/${slug}.json`;
+}
+
+/** Дней от `today` (ГГГГ-ММ-ДД) до даты; отрицательное — дата в прошлом. */
+export function daysUntil(today, dateOnly) {
+  const a = Date.parse(`${today}T00:00:00Z`);
+  const b = Date.parse(`${dateOnly}T00:00:00Z`);
+  if (Number.isNaN(a) || Number.isNaN(b)) return null;
+  return Math.round((b - a) / 86400000);
+}
+
+function pluralRu(n, one, few, many) {
+  const abs = Math.abs(n) % 100;
+  const last = abs % 10;
+  if (abs > 10 && abs < 20) return many;
+  if (last === 1) return one;
+  if (last >= 2 && last <= 4) return few;
+  return many;
+}
+
+/**
+ * Подпись к числу дней для виджета: будущее — как в приложении, прошедшее — словом
+ * «просрочено» (на маленькой надписи «3 дня назад» читается как история, а не как долг).
+ */
+export function humanDays(days) {
+  if (days === null) return '';
+  if (days === 0) return 'сегодня';
+  if (days === 1) return 'завтра';
+  if (days === -1) return 'вчера';
+  const n = Math.abs(days);
+  const years = Math.floor(n / 365);
+  const months = Math.floor((n % 365) / 30);
+  if (years >= 1) {
+    const tail = months > 0 ? ` ${months} мес.` : '';
+    const yearsWord = pluralRu(years, 'год', 'года', 'лет');
+    return days > 0 ? `через ${years} ${yearsWord}${tail}` : `просрочено на ${years} ${yearsWord}${tail}`;
+  }
+  const word = pluralRu(n, 'день', 'дня', 'дней');
+  return days > 0 ? `через ${n} ${word}` : `просрочено на ${n} ${word}`;
+}
+
+/**
+ * @param {{ deadlines?: unknown, tasks?: unknown, sections?: { deadlines?: boolean, tasks?: boolean }, today?: string, now?: string }} input
+ * @returns {Record<string, unknown>} объект сводки (публикуется как JSON)
+ */
+export function buildWidgetSummary({
+  deadlines = [],
+  tasks = [],
+  sections = {},
+  today = new Date().toISOString().slice(0, 10),
+  now = new Date().toISOString(),
+} = {}) {
+  const secDeadlines = sections?.deadlines === true;
+  const secTasks = sections?.tasks === true;
+
+  const dl = secDeadlines ? feedableDeadlines(deadlines) : [];
+  const withDays = dl
+    .map((d) => ({ entity: d, days: daysUntil(today, String(d.dueDate)) }))
+    .filter((x) => x.days !== null)
+    .sort((a, b) => (a.days ?? 0) - (b.days ?? 0));
+  const nearest = withDays[0] ?? null;
+
+  const tk = secTasks ? feedableTasks(tasks) : [];
+  const taskDays = tk
+    .map((t) => ({ entity: t, days: daysUntil(today, String(t.dueDate)) }))
+    .filter((x) => x.days !== null)
+    .sort((a, b) => (a.days ?? 0) - (b.days ?? 0));
+  const nearestTask = taskDays[0] ?? null;
+
+  const openTasks = tk.length;
+  const todayTasks = taskDays.filter((x) => x.days === 0).length;
+  const overdueTasks = taskDays.filter((x) => (x.days ?? 0) < 0).length;
+  const within7 = withDays.filter((x) => (x.days ?? 0) >= 0 && (x.days ?? 0) <= 7).length;
+  const overdueDeadlines = withDays.filter((x) => (x.days ?? 0) < 0).length;
+
+  const deadlinePart = nearest
+    ? `${String(nearest.entity.title ?? '').trim()} — ${humanDays(nearest.days)}`
+    : null;
+  const tasksPart = secTasks ? `дел: ${openTasks}${overdueTasks ? ` (просрочено ${overdueTasks})` : ''}` : null;
+  const parts = [deadlinePart, tasksPart].filter(Boolean);
+
+  return {
+    app: 'family-hub',
+    format: WIDGET_FORMAT,
+    updatedAt: now,
+    today,
+    sections: { deadlines: secDeadlines, tasks: secTasks },
+    deadline: nearest
+      ? {
+          title: String(nearest.entity.title ?? '').trim(),
+          date: nearest.entity.dueDate,
+          days: nearest.days,
+          human: humanDays(nearest.days),
+        }
+      : null,
+    task: nearestTask
+      ? {
+          title: String(nearestTask.entity.title ?? '').trim(),
+          date: nearestTask.entity.dueDate,
+          days: nearestTask.days,
+          human: humanDays(nearestTask.days),
+        }
+      : null,
+    openTasks,
+    todayTasks,
+    overdueTasks,
+    within7,
+    overdueDeadlines,
+    /** Готовая строка для виджета: «ТО автомобиля — через 41 день · дел: 5». */
+    line: parts.join(' · '),
+    /** Совсем коротко — для тесного виджета. */
+    short: deadlinePart ?? (secTasks ? `дел: ${openTasks}` : ''),
+  };
+}

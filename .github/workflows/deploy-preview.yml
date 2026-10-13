@@ -22,7 +22,7 @@ on:
   push:
     # Ветка текущей сессии Arena. Предыдущая (arena/01a0fbcb-family-hub) оставлена:
     # её публикация исторически уже происходила, лишним не будет.
-    branches: [arena/01a10d19-family-hub, arena/01a0fbcb-family-hub]
+    branches: [arena/c7a7fb94-family-hub, arena/01a10d19-family-hub, arena/01a0fbcb-family-hub]
   # Ручной запуск кнопкой «Run workflow» — перезапустить публикацию без нового коммита.
   workflow_dispatch:
 

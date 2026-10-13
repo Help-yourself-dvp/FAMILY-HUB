@@ -1,99 +1,75 @@
 /**
- * Настройки (§24) + подключение к семейному репозиторию (§2.5) + Диагностика (§11).
+ * Настройки (§24) + подключение к семейному репозиторию (§2.5).
  *
- * Самый важный экран ЭТАПА 1: именно здесь проверяется, работает ли синхронизация
- * между двумя телефонами. Секции вынесены в отдельные файлы (§6.18).
+ * Структура с 0.6.24 (просьба владельца 07.10.2026): группы по смыслу —
+ * «Профиль», «Семья и синхронизация», «Уведомления», «Оформление», «Данные».
+ * Технические подробности (диагностика, журнал, схема данных) живут на отдельной
+ * странице «Для разработчика» (0.6.25) — обычная настройка от них не зависит.
  */
-import { useSyncLog, useSyncState } from '../../app/hooks';
-import { isIos, isStandalone } from '../../notifications/channels';
-import { SCHEMA_VERSION } from '../../domain/types';
-import { Banner, Icon } from '../../design/ui';
-import { describeEvent } from './helpers';
+import { useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useSyncState } from '../../app/hooks';
+import { Banner } from '../../design/ui';
 import ProfileSection from './ProfileSection';
 import ConnectionSection from './ConnectionSection';
 import SyncSection from './SyncSection';
 import ThemeSection from './ThemeSection';
 import NotificationsSection from './NotificationsSection';
 import DataSection from './DataSection';
-import DiagnosticsSection from './DiagnosticsSection';
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="stack" aria-label={title}>
+      <h2 className="section-title">{title}</h2>
+      {children}
+    </section>
+  );
+}
 
 export default function SettingsScreen({ ready }: { ready: boolean }) {
   const sync = useSyncState();
-  const entries = useSyncLog();
+  const [params] = useSearchParams();
+  // Переход из «Для разработчика» сразу к подключению: /settings?open=connection.
+  const focusConnection = params.get('open') === 'connection';
+
+  useEffect(() => {
+    if (!focusConnection) return;
+    // Секция раскрывается пропом, здесь только прокручиваем к ней (после отрисовки).
+    const el = document.getElementById('connection');
+    el?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [focusConnection]);
 
   return (
     <div className="screen">
-      <div className="screen-subtitle">
-        версия {__APP_VERSION__} · схема данных v{SCHEMA_VERSION}
-      </div>
+      <div className="screen-subtitle">версия {__APP_VERSION__}</div>
 
       {!ready && <Banner tone="warn">Инициализация…</Banner>}
 
-      <ProfileSection />
-      <ConnectionSection />
-      <SyncSection />
-      <ThemeSection />
-      <NotificationsSection />
-      <DataSection />
-      <DiagnosticsSection />
+      <Group title="Профиль">
+        <ProfileSection />
+      </Group>
 
-      <section className="stack">
-        <details className="acc">
-          <summary className="acc-summary">
-            <span className="grow">Журнал синхронизации</span>
-            <span className="acc-hint">События и времена запросов — для отчёта</span>
-            <Icon name="chevron" size={18} className="chev" />
-          </summary>
-          <div className="acc-body stack">
-            <div className="card stack" style={{ gap: 6, maxHeight: 240, overflowY: 'auto' }}>
-              {entries.length === 0 && <div className="small muted">Событий пока нет.</div>}
-              {entries
-                .slice()
-                .reverse()
-                .slice(0, 40)
-                .map((e, i) => (
-                  <div key={i} className="row" style={{ gap: 8 }}>
-                    <span className="tiny mono muted" style={{ flex: '0 0 auto' }}>
-                      {new Date(e.at).toLocaleTimeString('ru-RU')}
-                    </span>
-                    <span className="tiny mono truncate">{describeEvent(e.event)}</span>
-                  </div>
-                ))}
-            </div>
-            <div className="tiny muted">
-              Журнал намеренно содержит только структурные события: ни содержимого покупок, ни
-              токенов (§6.19).
-            </div>
-          </div>
-        </details>
-      </section>
+      <Group title="Семья и синхронизация">
+        <ConnectionSection initialOpen={focusConnection} />
+        <SyncSection />
+      </Group>
 
-      <section className="card stack">
-        <div className="row" style={{ gap: 8 }}>
-          <Icon name="info" size={16} />
-          <span className="strong small">О приложении</span>
-          <span className="badge" style={{ marginLeft: 'auto' }}>
-            версия {__APP_VERSION__}
-          </span>
-        </div>
-        <div className="tiny muted">
-          Family Hub — приватное семейное приложение: общий список покупок и напоминания о сроках.
-          Работает без интернета, синхронизируется через ваше личное хранилище GitHub, обновляется
-          само. Приложение не хранит номера документов, пароли и сканы: для напоминания достаточно
-          названия и даты.
-        </div>
-        <div className="tiny mono muted">
-          Схема данных v{SCHEMA_VERSION}
-          {isIos() ? ' · iOS' : ''}
-          {isStandalone() ? ' · PWA установлено' : ' · работает в браузере'}
-        </div>
-      </section>
+      <Group title="Уведомления">
+        <NotificationsSection />
+      </Group>
 
-      <div style={{ height: 24 }} aria-hidden="true" />
+      <Group title="Оформление">
+        <ThemeSection />
+      </Group>
+
+      <Group title="Данные">
+        <DataSection />
+      </Group>
+
       <div className="tiny muted" style={{ textAlign: 'center' }}>
         Family Hub {__APP_VERSION__}
         {sync.rateRemaining !== null
-          ? ` · связь с хранилищем: запас ${sync.rateRemaining} из 5000 запросов в час (нам хватает с огромным запасом)`
+          ? ` · связь с хранилищем: запас ${sync.rateRemaining} из 5000 запросов в час`
           : ''}
       </div>
     </div>
